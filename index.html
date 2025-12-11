@@ -1,0 +1,2073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tactic Tac Toe</title>
+  <style>
+    :root {
+      font-family: Arial, Helvetica, sans-serif;
+      background: #000000;
+      color: #f7f7f7;
+      --tile-size: 110px;
+      --tile-gap: 10px;
+      --tile-font: 36px;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000000;
+    }
+
+    .app {
+      width: min(90vw, 420px);
+      padding: 24px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #272d3e, #181c28);
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 32px;
+      letter-spacing: 0.06em;
+      text-align: center;
+      color: #ffffff;
+    }
+
+    .status {
+      text-align: center;
+      margin-bottom: 16px;
+      font-size: 18px;
+      min-height: 24px;
+      color: #f7f7f7;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--tile-gap, 10px);
+      grid-auto-rows: var(--tile-size, 110px);
+    }
+
+    button.square {
+      aspect-ratio: 1 / 1;
+      min-width: 0;
+      width: 100%;
+      height: 100%;
+      font-size: var(--tile-font, 36px);
+      font-weight: bold;
+      color: #f7f7f7;
+      background: #0f1626;
+      border: 2px solid #2d374f;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: transform 100ms ease, background 100ms ease;
+    }
+
+    button.square:disabled {
+      cursor: default;
+    }
+
+    button.square:hover:not(:disabled) {
+      transform: translateY(-2px);
+      background: #1f2437;
+    }
+
+    .square.win {
+      background: #2ba84a;
+      border-color: #74de7a;
+    }
+
+    .controls {
+      margin-top: 22px;
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    .controls button {
+      padding: 10px 18px;
+      background: #ff3864;
+      border: none;
+      color: #fff;
+      border-radius: 999px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: opacity 120ms ease;
+    }
+
+    .controls button:hover {
+      opacity: 0.85;
+    }
+
+    .score-row {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #ffffff;
+      gap: 8px;
+    }
+
+    .score-row .round-status {
+      text-align: center;
+      color: #ffd26a;
+      font-size: 16px;
+    }
+
+    .score-row .align-right {
+      text-align: right;
+    }
+
+    .cards {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+    }
+
+    .card-panel {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 12px 14px;
+      transition: border 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .card-panel.selectable {
+      border-color: #ff3864;
+      box-shadow: 0 0 12px rgba(255, 56, 100, 0.35);
+    }
+
+    .card-panel[data-panel-owner="human"] {
+      border-color: rgba(43, 168, 74, 0.35);
+      background: rgba(22, 40, 30, 0.85);
+    }
+
+    .card-panel[data-panel-owner="human"].selectable {
+      border-color: #2ba84a;
+      box-shadow: 0 0 12px rgba(43, 168, 74, 0.55);
+    }
+
+    .card-panel[data-panel-owner="ai"] {
+      border-color: rgba(255, 56, 100, 0.35);
+      background: rgba(42, 20, 30, 0.9);
+    }
+
+    .card-panel[data-panel-owner="ai"].selectable {
+      border-color: #ff3864;
+      box-shadow: 0 0 12px rgba(255, 56, 100, 0.55);
+    }
+
+    .card-panel h2 {
+      margin: 0;
+      font-size: 13px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #9da6c0;
+    }
+
+    .card-grid {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+    }
+
+    .card {
+      border-radius: 12px;
+      padding: 12px;
+      background: #11182a;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      min-height: 90px;
+      cursor: pointer;
+      transition: transform 0.15s ease, border 0.15s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: #ff3864;
+    }
+
+    .card.selected {
+      border-color: #2ba84a;
+      box-shadow: 0 0 12px rgba(43, 168, 74, 0.5);
+    }
+
+    .card-panel[data-panel-owner="human"] .card {
+      background: rgba(12, 28, 20, 0.95);
+      border-color: rgba(43, 168, 74, 0.35);
+    }
+
+    .card-panel[data-panel-owner="human"] .card:hover {
+      border-color: #2ba84a;
+    }
+
+    .card-panel[data-panel-owner="ai"] .card {
+      background: rgba(32, 12, 20, 0.95);
+      border-color: rgba(255, 56, 100, 0.35);
+    }
+
+    .card-panel[data-panel-owner="ai"] .card:hover {
+      border-color: #ff3864;
+    }
+
+    .card-panel[data-panel-owner="ai"] .card.selected {
+      border-color: #ff3864;
+      box-shadow: 0 0 12px rgba(255, 56, 100, 0.55);
+    }
+
+    .card.disabled {
+      cursor: default;
+      opacity: 0.6;
+    }
+
+    .card-title {
+      margin: 0 0 4px;
+      font-size: 16px;
+      letter-spacing: 0.05em;
+    }
+
+    .card-text {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.35;
+      color: #cdd4f0;
+    }
+
+    .square.blocked {
+      background: #3c1f3a;
+      border-color: #d14f88;
+      color: #f5cedc;
+    }
+
+    .square.mystery {
+      border-style: dashed;
+      border-color: #ff9d00;
+      color: #ff9d00;
+      font-size: calc(var(--tile-font, 36px) * 0.9);
+      text-shadow: 0 0 8px rgba(255, 157, 0, 0.65);
+    }
+
+    .square.preview {
+      color: #2a2a2a;
+      font-weight: 600;
+    }
+
+    .square.ambush {
+      border-color: #ff4545;
+      box-shadow: 0 0 10px rgba(255, 69, 69, 0.6);
+    }
+
+    .win-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(13, 15, 27, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 220ms ease;
+      z-index: 10;
+    }
+
+    .win-overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .win-overlay.summary-mode {
+      pointer-events: none;
+    }
+
+    .win-message {
+      text-align: center;
+      font-size: 36px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .win-message.round-summary {
+      font-size: 34px;
+      letter-spacing: 0.08em;
+      text-transform: none;
+    }
+
+    .round-points-line {
+      display: block;
+      font-size: 42px;
+      margin: 12px 0;
+    }
+
+    body.shake {
+      animation: shake 0.6s ease;
+    }
+
+    @keyframes shake {
+      0% { transform: translate(0, 0); }
+      20% { transform: translate(-8px, 4px); }
+      40% { transform: translate(8px, -4px); }
+      60% { transform: translate(-6px, 2px); }
+      80% { transform: translate(6px, -2px); }
+      100% { transform: translate(0, 0); }
+    }
+
+    .ambush-flash {
+      position: fixed;
+      inset: 0;
+      background: rgba(255, 0, 0, 0.35);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      z-index: 12;
+    }
+
+    .ambush-flash.show {
+      opacity: 1;
+    }
+
+    .chain-flash {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 170, 255, 0.35);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      z-index: 12;
+    }
+
+    .chain-flash.show {
+      opacity: 1;
+    }
+
+    .ambush-alert {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 64px;
+      font-weight: 900;
+      color: #ff3b3b;
+      letter-spacing: 0.2em;
+      text-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+      opacity: 0;
+      transform: scale(0.8);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      pointer-events: none;
+      z-index: 13;
+    }
+
+    .ambush-alert.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .chain-alert {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 58px;
+      font-weight: 800;
+      color: #00c8ff;
+      letter-spacing: 0.15em;
+      text-shadow: 0 0 18px rgba(0, 0, 0, 0.7);
+      opacity: 0;
+      transform: scale(0.75);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      pointer-events: none;
+      z-index: 13;
+    }
+
+    .chain-alert.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .campaign-overlay {
+      position: fixed;
+      inset: 0;
+      background: #000000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #ffffff;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+      z-index: 30;
+    }
+
+    .campaign-overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .campaign-message {
+      font-size: 48px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .final-score-line {
+      font-size: 42px;
+      margin: 12px 0;
+    }
+
+    .final-status {
+      font-size: 54px;
+      margin-top: 24px;
+    }
+
+    body.ambush-shake {
+      animation: ambushShake 0.15s linear infinite;
+    }
+
+    @keyframes ambushShake {
+      0% { transform: translate(0px, 0px); }
+      25% { transform: translate(-4px, 3px); }
+      50% { transform: translate(4px, -3px); }
+      75% { transform: translate(-3px, 2px); }
+      100% { transform: translate(0px, 0px); }
+    }
+
+    body.chain-shake {
+      animation: chainShake 0.12s linear infinite;
+    }
+
+    @keyframes chainShake {
+      0% { transform: translate(0, 0); }
+      25% { transform: translate(5px, -4px); }
+      50% { transform: translate(-5px, 3px); }
+      75% { transform: translate(4px, 4px); }
+      100% { transform: translate(0, 0); }
+    }
+
+    #confetti {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 9;
+    }
+
+    .confetti {
+      position: absolute;
+      width: 10px;
+      height: 18px;
+      top: -20px;
+      opacity: 0.9;
+      border-radius: 2px;
+      animation: fall linear forwards;
+    }
+
+    @keyframes fall {
+      to {
+        transform: translate3d(var(--x-move), 110vh, 0) rotate(360deg);
+        opacity: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>Tactic•Tac•Toe</h1>
+    <div id="status" class="status">Player X goes first</div>
+    <div id="board" class="board"></div>
+    <div class="score-row">
+      <span class="score-label">X Points: <strong id="scoreX">0</strong></span>
+      <span class="round-status">Round <strong id="roundNumber">1</strong> / 7</span>
+      <span class="score-label align-right">O Points: <strong id="scoreO">0</strong></span>
+    </div>
+    <div class="cards">
+      <div class="card-panel" data-panel-owner="human">
+        <h2>Player X Cards</h2>
+        <div class="card-grid"></div>
+      </div>
+      <div class="card-panel" data-panel-owner="ai">
+        <h2>AI Cards</h2>
+        <div class="card-grid"></div>
+      </div>
+    </div>
+  </div>
+  <div id="confetti"></div>
+  <div id="winOverlay" class="win-overlay">
+    <div class="win-message" id="winMessage">Winner!</div>
+  </div>
+  <div id="ambushFlash" class="ambush-flash"></div>
+  <div id="ambushAlert" class="ambush-alert">AMBUSH!!!!</div>
+  <div id="chainFlash" class="chain-flash"></div>
+  <div id="chainAlert" class="chain-alert">CHAIN REACTION!!!!</div>
+  <div id="campaignOverlay" class="campaign-overlay">
+    <div id="campaignMessage" class="campaign-message"></div>
+  </div>
+
+  <script>
+    const boardElement = document.getElementById('board');
+    const statusElement = document.getElementById('status');
+    const scoreElements = {
+      X: document.getElementById('scoreX'),
+      O: document.getElementById('scoreO')
+    };
+    const roundElement = document.getElementById('roundNumber');
+    const cardPanels = {
+      X: {
+        panel: document.querySelector('[data-panel-owner="human"]'),
+        grid: document.querySelector('[data-panel-owner="human"] .card-grid')
+      },
+      O: {
+        panel: document.querySelector('[data-panel-owner="ai"]'),
+        grid: document.querySelector('[data-panel-owner="ai"] .card-grid')
+      }
+    };
+
+    const BASE_BOARD_SIZE = 3;
+    const TOTAL_ROUNDS = 7;
+    const HUMAN = 'X';
+    const AI = 'O';
+    const MYSTERY_CHANCE = 0.5;
+    const CARD_FLOW = {
+      CONTINUE: 'continue',
+      CONSUME: 'consume',
+      PENDING: 'pending'
+    };
+    const scores = { X: 0, O: 0 };
+    const cardPool = [
+      { id: 'momentum', name: 'Momentum Surge', description: 'Take two turns in a row once per round.', effect: 'extraTurn' },
+      { id: 'center-lock', name: 'Center Lock', description: 'Start the run already claiming the center tile.', effect: 'claimCenter' },
+      { id: 'grav-anchor', name: 'Grav Anchor', description: 'Lock down the heart of the arena instantly.', effect: 'claimCenter' },
+      { id: 'corner-ambush', name: 'Corner Ambush', description: 'Capture a random corner as soon as the board spawns.', effect: 'claimCorner' },
+      { id: 'phantom-corners', name: 'Phantom Corners', description: 'Phase into an unseen corner at the start.', effect: 'claimCorner' },
+      { id: 'astral-hooks', name: 'Astral Hooks', description: 'Grapple a random corner from turn zero.', effect: 'claimCorner' },
+      { id: 'edge-sentinel', name: 'Edge Sentinel', description: 'Deploy a sentry on a random edge tile.', effect: 'claimEdge' },
+      { id: 'perimeter-warden', name: 'Perimeter Warden', description: 'Patrol gains control of a random edge tile.', effect: 'claimEdge' },
+      { id: 'horizon-guards', name: 'Horizon Guards', description: 'A squad auto-claims one border edge.', effect: 'claimEdge' },
+      { id: 'waking-storm', name: 'Waking Storm', description: 'Awakens a random tile to carry your mark.', effect: 'claimRandom' },
+      { id: 'starlit-bloom', name: 'Starlit Bloom', description: 'A random tile erupts under your control.', effect: 'claimRandom' },
+      { id: 'void-rift', name: 'Void Rift', description: 'Curses a random tile that nobody can use this round.', effect: 'voidTile' },
+      { id: 'singed-hex', name: 'Singed Hex', description: 'Marks a single tile as untouchable.', effect: 'voidTile' },
+      { id: 'abyssal-bloom', name: 'Abyssal Bloom', description: 'Spawns two cursed tiles in the arena.', effect: 'doubleVoid' },
+      { id: 'null-bloom', name: 'Null Bloom', description: 'Spreads a pair of void tiles at the start.', effect: 'doubleVoid' },
+      { id: 'purify-sigil', name: 'Purify Sigil', description: 'Cleanses a random cursed tile right now.', effect: 'cleanseTile' },
+      { id: 'emma-bloom', name: 'Emma Bloom', description: 'Pick one of your tiles; all adjacent tiles become yours.', effect: 'emmaBloom' },
+      { id: 'shatter-rune', name: 'Shatter Rune', description: 'Click an enemy tile to erase it this turn.', effect: 'destroyTile' },
+      { id: 'ruin-pulse', name: 'Ruin Pulse', description: 'Charge a pulse that destroys one enemy tile.', effect: 'destroyTile' },
+      { id: 'cataclysm-weave', name: 'Cataclysm Weave', description: 'Detonate a tile to erase every connected enemy letter.', effect: 'destroyConnected' },
+      { id: 'ambush-snare', name: 'Ambush Snare', description: 'Mark an empty tile. The next foe to play there loses every connected letter.', effect: 'ambushTrap' }
+    ];
+    const winOverlay = document.getElementById('winOverlay');
+    const winMessage = document.getElementById('winMessage');
+    const confettiContainer = document.getElementById('confetti');
+    const ambushFlashElement = document.getElementById('ambushFlash');
+    const ambushAlertElement = document.getElementById('ambushAlert');
+    const chainFlashElement = document.getElementById('chainFlash');
+    const chainAlertElement = document.getElementById('chainAlert');
+    const campaignOverlay = document.getElementById('campaignOverlay');
+    const campaignMessage = document.getElementById('campaignMessage');
+
+    const playerState = {
+      X: createEmptyState(),
+      O: createEmptyState()
+    };
+
+    let boardSize = BASE_BOARD_SIZE;
+    let winCondition = BASE_BOARD_SIZE;
+    let board = Array(boardSize * boardSize).fill('');
+    let winningLines = generateWinningLines(boardSize, winCondition);
+    let currentPlayer = HUMAN;
+    let currentRound = 1;
+    let gameOver = false;
+    let waitingForAI = false;
+    let nextRoundTimeout = null;
+    let aiChoiceTimeout = null;
+    let mysteryTileIndex = -1;
+    let tileWeights = computeTileWeights(boardSize);
+    let roundResolved = false;
+    let lastRoundPoints = { X: 0, O: 0 };
+    let previewTimeout = null;
+    let weightPreviewActive = false;
+    let roundSummaryTimeout = null;
+    let ambushTraps = new Map();
+    let ambushFlashTimeout = null;
+    let ambushAlertTimeout = null;
+    let ambushShakeTimeout = null;
+    let chainFlashTimeout = null;
+    let chainAlertTimeout = null;
+    let chainShakeTimeout = null;
+    let campaignOverlayTimeout = null;
+
+    function createEmptyState() {
+      return {
+        card: null,
+        extraTurnAvailable: false,
+        extraTurnUsed: false,
+        destroyAvailable: false,
+        destroyMode: 'single',
+        destroyUsed: false,
+        awaitingChoice: false,
+        choices: [],
+        ready: false,
+        ambushAvailable: false,
+        ambushArming: false,
+        emmaBloomArming: false
+      };
+    }
+
+    function initBoard() {
+      boardElement.innerHTML = '';
+      boardElement.style.gridTemplateColumns = `repeat(${boardSize}, 1fr)`;
+      for (let idx = 0; idx < board.length; idx++) {
+        const btn = document.createElement('button');
+        btn.className = 'square';
+        btn.dataset.index = idx;
+        btn.addEventListener('click', handleMove);
+        boardElement.appendChild(btn);
+      }
+      updateTileScale();
+    }
+
+    function updateTileScale() {
+      requestAnimationFrame(() => {
+        const width = boardElement.clientWidth || boardElement.offsetWidth || 360;
+        const gap = Math.max(4, Math.min(12, 12 - Math.min(boardSize - 3, 6)));
+        const tileSize = Math.max(40, Math.floor((width - gap * (boardSize - 1)) / boardSize));
+        boardElement.style.setProperty('--tile-gap', `${gap}px`);
+        boardElement.style.setProperty('--tile-size', `${tileSize}px`);
+        boardElement.style.setProperty('--tile-font', `${Math.max(18, Math.round(tileSize * 0.5))}px`);
+      });
+    }
+
+    function handleMove(event) {
+      const idx = Number(event.currentTarget.dataset.index);
+      if (gameOver || currentPlayer !== HUMAN || waitingForAI) return;
+      if (playerState[HUMAN].awaitingChoice || playerState[AI].awaitingChoice) return;
+      if (playerState[HUMAN].ambushArming) {
+        attemptAmbushPlacement(HUMAN, idx);
+        return;
+      }
+      if (playerState[HUMAN].emmaBloomArming) {
+        attemptEmmaBloomSelection(HUMAN, idx);
+        return;
+      }
+      if (!playerState[HUMAN].ready) return;
+
+      if (board[idx] === AI && useDestroyAbility(HUMAN, idx)) {
+        return;
+      }
+
+      const trapOwner = getAmbushOwner(idx);
+      if (trapOwner && trapOwner !== HUMAN) {
+        resolveAmbushSpring(HUMAN, idx, trapOwner);
+        return;
+      }
+      if (trapOwner === HUMAN) {
+        clearAmbushAt(idx);
+      }
+
+      if (isMysteryTile(idx) && resolveMysteryTile(HUMAN)) {
+        processTurnResult(HUMAN);
+        return;
+      }
+
+      if (board[idx]) return;
+      makeMove(idx, HUMAN);
+      processTurnResult(HUMAN);
+    }
+
+    function processTurnResult(player) {
+      if (checkGameState()) return;
+      if (grantExtraTurn(player)) return;
+      switchTurns(player);
+    }
+
+    function grantExtraTurn(player) {
+      const state = playerState[player];
+      if (state?.extraTurnAvailable && !state.extraTurnUsed) {
+        state.extraTurnUsed = true;
+        const cardName = state.card?.name || 'card';
+        statusElement.textContent = `${playerLabel(player)} activates ${cardName}! Another turn.`;
+        currentPlayer = player;
+        startCardDraftFor(player);
+        return true;
+      }
+      return false;
+    }
+
+    function switchTurns(player) {
+      currentPlayer = player === HUMAN ? AI : HUMAN;
+      startCardDraftFor(currentPlayer);
+    }
+
+    function checkGameState() {
+      const winnerInfo = getWinner(board);
+      if (winnerInfo) {
+        handleWin(winnerInfo);
+        return true;
+      }
+
+      if (board.every(cell => cell)) {
+        handleDraw();
+        return true;
+      }
+      return false;
+    }
+
+    function evaluateBoardStateAfterAuto() {
+      if (gameOver) return true;
+      return checkGameState();
+    }
+
+    function handleWin(winnerInfo) {
+      gameOver = true;
+      highlightWinner(winnerInfo.line);
+      const winner = winnerInfo.player;
+      statusElement.textContent = `Player ${winner} claims Round ${currentRound}!`;
+      disableBoard();
+      showWinCelebration(winner);
+      waitingForAI = false;
+      completeRound({ winner });
+    }
+
+    function handleDraw(message) {
+      gameOver = true;
+      statusElement.textContent = message || `Round ${currentRound} ends in a draw.`;
+      waitingForAI = false;
+      disableBoard();
+      completeRound();
+    }
+
+    function triggerForcedDraw(reason) {
+      if (gameOver) return;
+      handleDraw(reason || 'No moves remain. The round ends in a draw.');
+    }
+
+    function completeRound({ winner = null } = {}) {
+      if (roundResolved) return;
+      roundResolved = true;
+      const finishedRound = currentRound;
+      const roundPoints = tallyRoundScores(winner, finishedRound);
+      const summaryDelay = winner ? 1000 : 0;
+      showRoundPointTotals(roundPoints, summaryDelay);
+      const overlayHoldMs = 2000;
+      const nextRoundDelay = summaryDelay + overlayHoldMs;
+      updateScoreDisplay();
+      waitingForAI = false;
+
+      if (winner) {
+        if (finishedRound >= TOTAL_ROUNDS) {
+          setTimeout(() => {
+            showCampaignFinale();
+          }, nextRoundDelay);
+          return;
+        }
+
+        currentRound += 1;
+        updateScoreDisplay();
+        scheduleNextRound({
+          statusMessage: `Round ${currentRound}: Player X goes first`,
+          delay: nextRoundDelay
+        });
+      } else {
+        scheduleNextRound({
+          statusMessage: `Draw. Round ${currentRound} rematch! Player X goes first`,
+          delay: nextRoundDelay
+        });
+      }
+    }
+
+    function showCampaignFinale() {
+      if (campaignOverlayTimeout) {
+        clearTimeout(campaignOverlayTimeout);
+        campaignOverlayTimeout = null;
+      }
+      hideWinCelebration();
+      const playerScore = scores.X;
+      const aiScore = scores.O;
+      let verdict = '';
+      if (playerScore === aiScore) {
+        verdict = "IT'S A TIE!";
+      } else if (playerScore > aiScore) {
+        verdict = 'YOU WIN!!!!!! :}';
+      } else {
+        verdict = 'YOU LOST!!!!! :(';
+      }
+      if (campaignMessage) {
+        campaignMessage.innerHTML = `
+          <div class="final-score-line">X Points: ${playerScore}</div>
+          <div class="final-score-line">O Points: ${aiScore}</div>
+          <div class="final-status">${verdict}</div>
+        `;
+      }
+      campaignOverlay?.classList?.add('show');
+      campaignOverlayTimeout = setTimeout(() => {
+        campaignOverlay?.classList?.remove('show');
+        campaignOverlayTimeout = null;
+        resetRound(true, { statusMessage: 'Round 1: Player X goes first', resetCampaign: true });
+      }, 3000);
+    }
+
+    function tallyRoundScores(winner, roundNumber) {
+      const weights = tileWeights.length === board.length
+        ? tileWeights
+        : computeTileWeights(boardSize);
+      const roundPoints = { X: 0, O: 0 };
+      board.forEach((cell, idx) => {
+        if (cell === HUMAN) {
+          roundPoints.X += weights[idx] || 1;
+        } else if (cell === AI) {
+          roundPoints.O += weights[idx] || 1;
+        }
+      });
+      if (winner === HUMAN) roundPoints.X += roundNumber;
+      if (winner === AI) roundPoints.O += roundNumber;
+      scores.X += roundPoints.X;
+      scores.O += roundPoints.O;
+      lastRoundPoints = roundPoints;
+      return roundPoints;
+    }
+
+    function updateScoreDisplay() {
+      scoreElements.X.textContent = scores.X;
+      scoreElements.O.textContent = scores.O;
+      if (roundElement) {
+        roundElement.textContent = Math.min(currentRound, TOTAL_ROUNDS);
+      }
+    }
+
+    function showRoundPointTotals(roundPoints, delay = 0) {
+      if (roundSummaryTimeout) {
+        clearTimeout(roundSummaryTimeout);
+        roundSummaryTimeout = null;
+      }
+      roundSummaryTimeout = setTimeout(() => {
+        winMessage.classList.add('round-summary');
+        winMessage.innerHTML = `
+          <span class="round-points-line">X - ${roundPoints.X} points</span>
+          <span class="round-points-line">O - ${roundPoints.O} points</span>
+        `;
+        winOverlay.classList.add('show');
+        winOverlay.classList.add('summary-mode');
+        roundSummaryTimeout = null;
+      }, Math.max(0, delay));
+    }
+
+    function makeMove(idx, player) {
+      board[idx] = player;
+      const tile = boardElement.children[idx];
+      if (tile) {
+        clearTilePreviewState(idx);
+        tile.textContent = player;
+      }
+    }
+
+    function highlightWinner(line) {
+      line.forEach(idx => {
+        const tile = boardElement.children[idx];
+        if (tile) tile.classList.add('win');
+      });
+    }
+
+    function disableBoard() {
+      [...boardElement.children].forEach(btn => btn.disabled = true);
+      waitingForAI = false;
+    }
+
+    function resetRound(arg1 = {}, arg2 = {}) {
+      let resetCampaign = false;
+      let options = {};
+      if (typeof arg1 === 'boolean') {
+        resetCampaign = arg1;
+        options = arg2 || {};
+      } else if (typeof arg1 === 'object' && arg1 !== null) {
+        options = arg1;
+      }
+
+      if (nextRoundTimeout) {
+        clearTimeout(nextRoundTimeout);
+        nextRoundTimeout = null;
+      }
+      if (aiChoiceTimeout) {
+        clearTimeout(aiChoiceTimeout);
+        aiChoiceTimeout = null;
+      }
+      if (previewTimeout) {
+        clearTimeout(previewTimeout);
+        previewTimeout = null;
+      }
+      weightPreviewActive = false;
+      clearAmbushEffects();
+      clearChainEffects();
+
+      if (resetCampaign || options.resetCampaign) {
+        scores.X = 0;
+        scores.O = 0;
+        currentRound = 1;
+        lastRoundPoints = { X: 0, O: 0 };
+      }
+      hideWinCelebration();
+
+      const effectiveRound = Math.min(currentRound, TOTAL_ROUNDS);
+      boardSize = getBoardSizeForRound(effectiveRound);
+      winCondition = boardSize;
+      board = Array(boardSize * boardSize).fill('');
+      tileWeights = computeTileWeights(boardSize);
+      winningLines = generateWinningLines(boardSize, winCondition);
+      ambushTraps = new Map();
+      initBoard();
+
+      currentPlayer = HUMAN;
+      gameOver = false;
+      roundResolved = false;
+      waitingForAI = false;
+      const message = options.statusMessage || `Round ${effectiveRound}: Player X goes first`;
+      statusElement.textContent = message;
+      [...boardElement.children].forEach(btn => {
+        btn.textContent = '';
+        btn.disabled = false;
+        btn.classList.remove('win', 'blocked', 'mystery', 'ambush');
+      });
+
+      updateScoreDisplay();
+
+      playerState.X = createEmptyState();
+      playerState.O = createEmptyState();
+      showTileWeightPreview();
+      startCardDraftFor(HUMAN);
+    }
+
+    function scheduleNextRound(options = {}) {
+      const { delay = 2000, statusMessage } = options;
+      if (nextRoundTimeout) clearTimeout(nextRoundTimeout);
+      nextRoundTimeout = setTimeout(() => {
+        resetRound({ statusMessage });
+        nextRoundTimeout = null;
+      }, delay);
+    }
+
+    function aiMove() {
+      if (gameOver) {
+        waitingForAI = false;
+        return;
+      }
+      const blockIdx = findCriticalBlockMove();
+      if (blockIdx !== -1) {
+        makeMove(blockIdx, AI);
+        processTurnResult(AI);
+        return;
+      }
+      maybeAIDestroyTile();
+      if (!gameOver && currentPlayer === AI && playerState[AI].ready && attemptAIMysteryTile()) {
+        processTurnResult(AI);
+        return;
+      }
+      const move = findBestMove(board);
+      if (move === -1) {
+        waitingForAI = false;
+        triggerForcedDraw('AI cannot move. Round declared a draw.');
+        return;
+      }
+      const trapOwner = getAmbushOwner(move);
+      if (trapOwner && trapOwner !== AI) {
+        resolveAmbushSpring(AI, move, trapOwner);
+        return;
+      }
+      if (trapOwner === AI) {
+        clearAmbushAt(move);
+      }
+      makeMove(move, AI);
+      processTurnResult(AI);
+    }
+
+    function findBestMove(state) {
+      if (boardSize === BASE_BOARD_SIZE && winCondition === BASE_BOARD_SIZE) {
+        let bestScore = -Infinity;
+        let move = -1;
+        state.forEach((cell, idx) => {
+          if (!cell && !isMysteryTile(idx)) {
+            state[idx] = AI;
+            const score = minimax(state, false, 0);
+            state[idx] = '';
+            if (score > bestScore) {
+              bestScore = score;
+              move = idx;
+            }
+          }
+        });
+        return move;
+      }
+      return findLargeBoardMove(state);
+    }
+
+    function findLargeBoardMove(state) {
+      const empties = getEmptyIndices(state);
+      if (!empties.length) return -1;
+
+      for (const idx of empties) {
+        state[idx] = AI;
+        if (isPlayerWinning(state, AI)) {
+          state[idx] = '';
+          return idx;
+        }
+        state[idx] = '';
+      }
+
+      for (const idx of empties) {
+        state[idx] = HUMAN;
+        if (isPlayerWinning(state, HUMAN)) {
+          state[idx] = '';
+          return idx;
+        }
+        state[idx] = '';
+      }
+
+      const preferred = getPreferredIndices();
+      for (const idx of preferred) {
+        if (empties.includes(idx)) return idx;
+      }
+
+      return empties[Math.floor(Math.random() * empties.length)];
+    }
+
+    function findCriticalBlockMove() {
+      for (const line of winningLines) {
+        let humanCount = 0;
+        let invalidLine = false;
+        const empties = [];
+        for (const idx of line) {
+          const cell = board[idx];
+          if (cell === HUMAN) {
+            humanCount++;
+          } else if (cell === AI || cell === 'BLOCK' || isMysteryTile(idx)) {
+            invalidLine = true;
+            break;
+          } else {
+            empties.push(idx);
+          }
+        }
+        if (!invalidLine && humanCount === winCondition - 1 && empties.length === 1) {
+          return empties[0];
+        }
+      }
+      return -1;
+    }
+
+    function minimax(state, isMaximizing, depth) {
+      const winnerInfo = getWinner(state);
+      if (winnerInfo && winnerInfo.player === AI) return 10 - depth;
+      if (winnerInfo && winnerInfo.player === HUMAN) return depth - 10;
+      if (state.every(cell => cell)) return 0;
+
+      if (isMaximizing) {
+        let bestScore = -Infinity;
+        state.forEach((cell, idx) => {
+          if (!cell && !isMysteryTile(idx)) {
+            state[idx] = AI;
+            bestScore = Math.max(bestScore, minimax(state, false, depth + 1));
+            state[idx] = '';
+          }
+        });
+        return bestScore;
+      } else {
+        let bestScore = Infinity;
+        state.forEach((cell, idx) => {
+          if (!cell && !isMysteryTile(idx)) {
+            state[idx] = HUMAN;
+            bestScore = Math.min(bestScore, minimax(state, true, depth + 1));
+            state[idx] = '';
+          }
+        });
+        return bestScore;
+      }
+    }
+
+    function getWinner(state) {
+      for (const line of winningLines) {
+        const first = state[line[0]];
+        if ((first === HUMAN || first === AI) && line.every(idx => state[idx] === first)) {
+          return { player: first, line };
+        }
+      }
+      return null;
+    }
+
+    function isPlayerWinning(state, player) {
+      return winningLines.some(line => line.every(idx => state[idx] === player));
+    }
+
+    function startCardDraftFor(player) {
+      const state = playerState[player];
+      state.awaitingChoice = true;
+      state.ready = false;
+      state.card = null;
+      state.extraTurnAvailable = false;
+      state.extraTurnUsed = false;
+      state.destroyAvailable = false;
+      state.destroyUsed = false;
+      state.destroyMode = 'single';
+      state.choices = [];
+      state.ambushAvailable = false;
+      state.ambushArming = false;
+      renderCardChoices(player);
+      if (player === HUMAN) {
+        waitingForAI = false;
+        statusElement.textContent = 'Choose a card before placing.';
+        cardPanels.X?.panel?.classList?.add('selectable');
+        cardPanels.O?.panel?.classList?.remove('selectable');
+      } else {
+        waitingForAI = true;
+        statusElement.textContent = 'AI is drawing a card...';
+        cardPanels.O?.panel?.classList?.add('selectable');
+        cardPanels.X?.panel?.classList?.remove('selectable');
+        if (aiChoiceTimeout) clearTimeout(aiChoiceTimeout);
+        aiChoiceTimeout = setTimeout(() => {
+          applyAISelection();
+          aiChoiceTimeout = null;
+        }, 1200);
+      }
+    }
+
+    function drawCard() {
+      const index = Math.floor(Math.random() * cardPool.length);
+      return cardPool[index];
+    }
+
+    function renderCardChoices(player) {
+      const choices = [drawCard(), drawCard(), drawCard()];
+      playerState[player].choices = choices;
+      const grid = cardPanels[player]?.grid;
+      if (!grid) return;
+      grid.innerHTML = '';
+      choices.forEach((card, idx) => {
+        const cardEl = document.createElement('div');
+        cardEl.className = 'card';
+        cardEl.innerHTML = `
+          <div class="card-title">${card.name}</div>
+          <p class="card-text">${card.description}</p>
+        `;
+        if (player === HUMAN) {
+          cardEl.addEventListener('click', () => handleCardSelection(player, idx));
+        } else {
+          cardEl.classList.add('disabled');
+        }
+        grid.appendChild(cardEl);
+      });
+    }
+
+    function handleCardSelection(player, choiceIndex) {
+      const state = playerState[player];
+      if (!state || !state.awaitingChoice) return;
+      const choices = state.choices || [];
+      const card = choices[choiceIndex];
+      if (!card) return;
+
+      state.card = card;
+      state.awaitingChoice = false;
+      state.choices = [];
+      const grid = cardPanels[player]?.grid;
+      if (grid) {
+        [...grid.children].forEach((child, idx) => {
+          if (idx === choiceIndex) {
+            child.classList.add('selected');
+            child.classList.remove('disabled');
+          } else {
+            child.classList.remove('selected');
+            child.classList.add('disabled');
+          }
+        });
+      }
+      cardPanels[player]?.panel?.classList?.remove('selectable');
+
+      state.extraTurnAvailable = card.effect === 'extraTurn';
+      state.extraTurnUsed = false;
+      if (card.effect === 'destroyTile' || card.effect === 'destroyConnected') {
+        state.destroyAvailable = true;
+        state.destroyMode = card.effect === 'destroyConnected' ? 'chain' : 'single';
+      } else {
+        state.destroyAvailable = false;
+        state.destroyMode = 'single';
+      }
+      state.destroyUsed = false;
+
+      const turnConsumedByCard = card.effect === 'voidTile' || card.effect === 'doubleVoid';
+      const effectOutcome = applyCardEffect(player, card);
+      const pendingEffect = effectOutcome === CARD_FLOW.PENDING;
+      const effectConsumedTurn = effectOutcome === CARD_FLOW.CONSUME;
+
+      if (gameOver) {
+        return;
+      }
+
+      if (card.effect === 'ambushTrap') {
+        if (player === HUMAN) {
+          state.ready = false;
+        } else {
+          state.ready = false;
+          processTurnResult(AI);
+        }
+        return;
+      }
+
+      if (pendingEffect) {
+        state.ready = false;
+        return;
+      }
+
+      if (player === HUMAN) {
+        if (turnConsumedByCard || effectConsumedTurn) {
+          state.ready = false;
+          statusElement.textContent = getConsumeMessage(player, card);
+          if (!gameOver) {
+            processTurnResult(HUMAN);
+          }
+          return;
+        }
+        state.ready = true;
+        statusElement.textContent = 'Card ready. Place your mark.';
+      } else {
+        if (aiChoiceTimeout) {
+          clearTimeout(aiChoiceTimeout);
+          aiChoiceTimeout = null;
+        }
+        if (turnConsumedByCard || effectConsumedTurn) {
+          state.ready = false;
+          statusElement.textContent = getConsumeMessage(player, card);
+          if (!gameOver) {
+            processTurnResult(AI);
+          }
+          return;
+        }
+        state.ready = true;
+        statusElement.textContent = 'AI is thinking...';
+        setTimeout(() => {
+          if (!gameOver && currentPlayer === AI) {
+            aiMove();
+          }
+        }, 300);
+      }
+    }
+
+    function applyAISelection() {
+      const state = playerState[AI];
+      if (!state || state.awaitingChoice === false) return;
+      const choices = state.choices || [];
+      if (!choices.length) return;
+      const selectedIndex = chooseBestAICardIndex(choices);
+      handleCardSelection(AI, selectedIndex);
+    }
+
+    function chooseBestAICardIndex(choices) {
+      if (!choices.length) return 0;
+      const roll = Math.random();
+      const preferredOrder = ['extraTurn', 'destroyConnected', 'emmaBloom', 'destroyTile', 'cleanseTile', 'claimCenter', 'claimCorner', 'claimEdge', 'claimRandom', 'doubleVoid', 'voidTile'];
+      const scored = choices.map((card, idx) => {
+        const priority = preferredOrder.indexOf(card.effect);
+        const score = priority === -1 ? preferredOrder.length + idx : priority;
+        return { idx, score };
+      }).sort((a, b) => a.score - b.score);
+      if (roll < 0.65) {
+        return scored[0].idx;
+      }
+      return Math.floor(Math.random() * choices.length);
+    }
+
+    function applyCardEffect(player, card) {
+      if (!card) return CARD_FLOW.CONTINUE;
+      switch (card.effect) {
+        case 'claimCenter':
+          claimCenter(player);
+          return CARD_FLOW.CONTINUE;
+        case 'claimCorner':
+          claimCorner(player);
+          return CARD_FLOW.CONTINUE;
+        case 'claimEdge':
+          claimEdge(player);
+          return CARD_FLOW.CONTINUE;
+        case 'claimRandom':
+          autoClaim(player, getAllIndices());
+          return CARD_FLOW.CONTINUE;
+        case 'voidTile':
+          corruptTile();
+          return CARD_FLOW.CONTINUE;
+        case 'doubleVoid':
+          corruptTile();
+          corruptTile();
+          return CARD_FLOW.CONTINUE;
+        case 'cleanseTile':
+          cleanseCursedTile();
+          return CARD_FLOW.CONTINUE;
+        case 'emmaBloom':
+          return triggerEmmaBloom(player);
+        case 'ambushTrap':
+          prepareAmbushTrap(player);
+          return CARD_FLOW.PENDING;
+        default:
+          return CARD_FLOW.CONTINUE;
+      }
+    }
+
+    function claimCenter(player) {
+      const centers = getCenterIndices();
+      const spot = centers.find(idx => !board[idx] && !isMysteryTile(idx) && !isAmbushMarked(idx));
+      if (spot !== undefined) {
+        makeMove(spot, player);
+        evaluateBoardStateAfterAuto();
+      } else {
+        autoClaim(player, getAllIndices());
+      }
+    }
+
+    function claimCorner(player) {
+      const corners = getCornerIndices();
+      const claimed = autoClaim(player, corners);
+      if (claimed === null) {
+        autoClaim(player, getAllIndices());
+      }
+    }
+
+    function claimEdge(player) {
+      const edges = getEdgeIndices();
+      const claimed = autoClaim(player, edges);
+      if (claimed === null) {
+        autoClaim(player, getAllIndices());
+      }
+    }
+
+    function autoClaim(player, indices) {
+      const pool = indices.filter(idx => !board[idx] && !isMysteryTile(idx) && !isAmbushMarked(idx));
+      if (!pool.length) return null;
+      const idx = pool[Math.floor(Math.random() * pool.length)];
+      makeMove(idx, player);
+      evaluateBoardStateAfterAuto();
+      return idx;
+    }
+
+    function triggerEmmaBloom(player) {
+      const state = playerState[player];
+      if (!state) return CARD_FLOW.CONTINUE;
+      const ownedTiles = getOwnedTileIndices(player);
+      if (!ownedTiles.length) {
+        statusElement.textContent = `${playerLabel(player)} has no tiles to empower.`;
+        return CARD_FLOW.CONTINUE;
+      }
+      if (player === HUMAN) {
+        state.emmaBloomArming = true;
+        state.ready = false;
+        statusElement.textContent = 'Select one of your tiles to unleash Emma Bloom.';
+        return CARD_FLOW.PENDING;
+      }
+      const choice = chooseEmmaBloomTile(player, ownedTiles);
+      if (choice === -1) {
+        statusElement.textContent = 'Emma Bloom fizzles with no valid target.';
+        return CARD_FLOW.CONTINUE;
+      }
+      executeEmmaBloom(player, choice);
+      return CARD_FLOW.CONSUME;
+    }
+
+    function attemptEmmaBloomSelection(player, idx) {
+      const state = playerState[player];
+      if (!state?.emmaBloomArming) return;
+      if (board[idx] !== player) {
+        statusElement.textContent = 'Select one of your own tiles for Emma Bloom.';
+        return;
+      }
+      state.emmaBloomArming = false;
+      executeEmmaBloom(player, idx);
+      if (!gameOver) {
+        processTurnResult(player);
+      }
+    }
+
+    function executeEmmaBloom(player, originIdx) {
+      convertTileToPlayer(originIdx, player);
+      const neighbors = getNeighborIndices(originIdx);
+      neighbors.forEach(neighbor => convertTileToPlayer(neighbor, player));
+      statusElement.textContent = `${playerLabel(player)}'s Emma Bloom overtakes nearby tiles!`;
+      evaluateBoardStateAfterAuto();
+    }
+
+    function convertTileToPlayer(idx, player) {
+      board[idx] = player;
+      if (idx === mysteryTileIndex) {
+        mysteryTileIndex = -1;
+      }
+      clearAmbushAt(idx);
+      const btn = boardElement.children[idx];
+      if (btn) {
+        clearTilePreviewState(idx);
+        btn.textContent = player;
+        btn.disabled = false;
+        btn.classList.remove('win', 'blocked', 'mystery');
+      }
+    }
+
+    function getOwnedTileIndices(player) {
+      return board
+        .map((cell, idx) => (cell === player ? idx : null))
+        .filter(idx => idx !== null);
+    }
+
+    function chooseEmmaBloomTile(player, ownedTiles = null) {
+      const owned = ownedTiles || getOwnedTileIndices(player);
+      if (!owned.length) return -1;
+      let bestIdx = owned[0];
+      let bestScore = -1;
+      owned.forEach(idx => {
+        const neighbors = getNeighborIndices(idx);
+        const score = neighbors.reduce((total, neighbor) => {
+          return total + (board[neighbor] === player ? 0 : 1);
+        }, 0);
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = idx;
+        }
+      });
+      return bestIdx;
+    }
+
+    function corruptTile() {
+      const idx = getRandomEmptyIndex({ allowMystery: false });
+      if (idx === -1) {
+        if (mysteryTileIndex !== -1 && !board[mysteryTileIndex]) {
+          statusElement.textContent = 'No safe tiles to corrupt. The curse fizzles.';
+          return;
+        }
+        triggerForcedDraw('No moves remain due to curses. Round ends in a draw.');
+        return;
+      }
+      clearAmbushAt(idx);
+      board[idx] = 'BLOCK';
+      clearTilePreviewState(idx);
+      const btn = boardElement.children[idx];
+      if (btn) {
+        btn.textContent = '#';
+        btn.disabled = true;
+        btn.classList.add('blocked');
+      }
+    }
+
+    function cleanseCursedTile() {
+      const cursedIndices = board
+        .map((cell, idx) => (cell === 'BLOCK' ? idx : null))
+        .filter(idx => idx !== null);
+      if (!cursedIndices.length) return;
+      const idx = cursedIndices[Math.floor(Math.random() * cursedIndices.length)];
+      board[idx] = '';
+      const btn = boardElement.children[idx];
+      if (btn) {
+        btn.textContent = '';
+        btn.disabled = false;
+        btn.classList.remove('blocked');
+      }
+    }
+
+    function getRandomEmptyIndex(options = {}) {
+      const empties = getEmptyIndices(board, { includeMystery: options.allowMystery });
+      if (!empties.length) return -1;
+      return empties[Math.floor(Math.random() * empties.length)];
+    }
+
+    function canUseDestroy(player) {
+      const state = playerState[player];
+      return Boolean(state && state.destroyAvailable && !state.destroyUsed);
+    }
+
+    function useDestroyAbility(player, idx, statusOverride) {
+      if (!canUseDestroy(player)) return false;
+      const opponent = player === HUMAN ? AI : HUMAN;
+      if (board[idx] !== opponent) return false;
+      const state = playerState[player];
+      state.destroyUsed = true;
+      const targetSymbol = board[idx];
+      const targets = state.destroyMode === 'chain'
+        ? getConnectedCluster(idx, targetSymbol)
+        : [idx];
+      targets.forEach(targetIdx => {
+        board[targetIdx] = '';
+        const btn = boardElement.children[targetIdx];
+        if (btn) {
+          btn.textContent = '';
+          btn.disabled = false;
+          btn.classList.remove('win', 'blocked');
+        }
+        clearAmbushAt(targetIdx);
+      });
+      if (state.destroyMode === 'chain') {
+        showChainReactionEffects();
+      }
+      const cardName = state.card?.name || 'a card';
+      if (statusOverride) {
+        statusElement.textContent = statusOverride;
+      } else if (player === HUMAN) {
+        const extra = state.destroyMode === 'chain' ? 'Chain collapsed!' : 'Tile erased.';
+        statusElement.textContent = `Player X unleashed ${cardName}! ${extra} Place your next mark.`;
+      } else {
+        statusElement.textContent = `AI used ${cardName} to destroy your tiles.`;
+      }
+      return true;
+    }
+
+    function maybeAIDestroyTile() {
+      if (!canUseDestroy(AI)) return;
+      const target = findHumanTileToDestroy();
+      if (target === -1) return;
+      const cardName = playerState[AI].card?.name || 'an ability';
+      useDestroyAbility(AI, target, `AI activated ${cardName} to obliterate your tile.`);
+    }
+
+    function findHumanTileToDestroy() {
+      let candidate = -1;
+      let bestCount = 0;
+      winningLines.forEach(line => {
+        const humanCount = line.filter(idx => board[idx] === HUMAN).length;
+        const aiCount = line.filter(idx => board[idx] === AI).length;
+        if (humanCount > 0 && aiCount === 0 && humanCount >= bestCount) {
+          bestCount = humanCount;
+          const tileIdx = line.find(i => board[i] === HUMAN);
+          if (tileIdx !== undefined) {
+            candidate = tileIdx;
+          }
+        }
+      });
+      if (candidate !== -1) return candidate;
+      return board.findIndex(cell => cell === HUMAN);
+    }
+
+    function getEmptyIndices(state, options = {}) {
+      const includeMystery = Boolean(options.includeMystery);
+      return state
+        .map((cell, idx) => {
+          if (cell) return null;
+          if (!includeMystery && isMysteryTile(idx)) return null;
+          return idx;
+        })
+        .filter(idx => idx !== null);
+    }
+
+    function getAllIndices() {
+      return Array.from({ length: board.length }, (_, idx) => idx);
+    }
+
+    function getCornerIndices() {
+      const topRight = boardSize - 1;
+      const bottomLeft = board.length - boardSize;
+      const bottomRight = board.length - 1;
+      return [0, topRight, bottomLeft, bottomRight];
+    }
+
+    function getEdgeIndices() {
+      const edges = [];
+      const last = boardSize - 1;
+      if (last < 1) return edges;
+      for (let col = 1; col < last; col++) {
+        edges.push(col);
+        edges.push(last * boardSize + col);
+      }
+      for (let row = 1; row < last; row++) {
+        edges.push(row * boardSize);
+        edges.push(row * boardSize + last);
+      }
+      const cornerSet = new Set(getCornerIndices());
+      return edges.filter(idx => !cornerSet.has(idx));
+    }
+
+    function getCenterIndices() {
+      if (boardSize % 2 === 1) {
+        const mid = Math.floor(boardSize / 2);
+        return [mid * boardSize + mid];
+      }
+      const lower = boardSize / 2 - 1;
+      const upper = boardSize / 2;
+      return [
+        lower * boardSize + lower,
+        lower * boardSize + upper,
+        upper * boardSize + lower,
+        upper * boardSize + upper
+      ];
+    }
+
+    function getPreferredIndices() {
+      const pref = [...getCenterIndices(), ...getCornerIndices()];
+      const unique = new Set(pref);
+      for (let i = 0; i < board.length; i++) {
+        unique.add(i);
+      }
+      return Array.from(unique);
+    }
+
+    function getConnectedCluster(startIdx, symbol) {
+      if (!(symbol === HUMAN || symbol === AI)) return [];
+      const visited = new Set();
+      const cluster = [];
+      const stack = [startIdx];
+      while (stack.length) {
+        const current = stack.pop();
+        if (visited.has(current)) continue;
+        if (board[current] !== symbol) continue;
+        visited.add(current);
+        cluster.push(current);
+        getNeighborIndices(current).forEach(neighbor => {
+          if (!visited.has(neighbor) && board[neighbor] === symbol) {
+            stack.push(neighbor);
+          }
+        });
+      }
+      return cluster;
+    }
+
+    function getNeighborIndices(idx) {
+      const neighbors = [];
+      const row = Math.floor(idx / boardSize);
+      const col = idx % boardSize;
+      if (row > 0) neighbors.push(idx - boardSize);
+      if (row < boardSize - 1) neighbors.push(idx + boardSize);
+      if (col > 0) neighbors.push(idx - 1);
+      if (col < boardSize - 1) neighbors.push(idx + 1);
+      return neighbors;
+    }
+
+    function getAmbushOwner(idx) {
+      return ambushTraps.get(idx);
+    }
+
+    function isAmbushMarked(idx) {
+      return ambushTraps.has(idx);
+    }
+
+    function renderAmbushTile(idx) {
+      const tile = boardElement.children[idx];
+      if (!tile) return;
+      clearTilePreviewState(idx);
+      tile.classList.add('ambush');
+      tile.dataset.ambush = '1';
+    }
+
+    function placeAmbushTrap(player, idx) {
+      if (board[idx] || isAmbushMarked(idx)) return false;
+      ambushTraps.set(idx, player);
+      renderAmbushTile(idx);
+      return true;
+    }
+
+    function clearAmbushAt(idx) {
+      if (!ambushTraps.has(idx)) return;
+      ambushTraps.delete(idx);
+      const tile = boardElement.children[idx];
+      if (tile) {
+        tile.classList.remove('ambush');
+        tile.removeAttribute('data-ambush');
+      }
+    }
+
+    function attemptAmbushPlacement(player, idx) {
+      const state = playerState[player];
+      if (!state?.ambushArming) return;
+      if (board[idx] || board[idx] === 'BLOCK' || isAmbushMarked(idx)) {
+        statusElement.textContent = 'Choose an empty tile for your ambush.';
+        return;
+      }
+      if (placeAmbushTrap(player, idx)) {
+        state.ambushArming = false;
+        state.ambushAvailable = false;
+        statusElement.textContent = 'Ambush armed! Passing turn...';
+        processTurnResult(player);
+      }
+    }
+
+    function resolveAmbushSpring(player, idx, owner) {
+      makeMove(idx, player);
+      triggerAmbush(idx, player, owner);
+      finishAmbushTurn(player);
+    }
+
+    function triggerAmbush(idx, victim, owner) {
+      ambushTraps.delete(idx);
+      if (idx === mysteryTileIndex) {
+        mysteryTileIndex = -1;
+      }
+      const tile = boardElement.children[idx];
+      if (tile) {
+        tile.classList.remove('ambush');
+      }
+      const cluster = getConnectedCluster(idx, victim);
+      cluster.forEach(target => {
+        board[target] = '';
+        const cell = boardElement.children[target];
+        if (cell) {
+          cell.textContent = '';
+          cell.disabled = false;
+          cell.classList.remove('win', 'blocked');
+        }
+        clearAmbushAt(target);
+      });
+      playAmbushEffects();
+      statusElement.textContent = `${playerLabel(owner)}'s ambush detonates! ${playerLabel(victim)} loses ${cluster.length} tiles.`;
+    }
+
+    function finishAmbushTurn(victim) {
+      const state = playerState[victim];
+      if (state) {
+        state.ready = false;
+        state.extraTurnUsed = true;
+      }
+      if (!gameOver) {
+        switchTurns(victim);
+      }
+    }
+
+    function playerLabel(player) {
+      return player === HUMAN ? 'Player X' : 'AI';
+    }
+
+    function getConsumeMessage(player, card) {
+      if (!card) return `${playerLabel(player)} completes their action.`;
+      switch (card.effect) {
+        case 'voidTile':
+        case 'doubleVoid':
+          return 'Curses unleashed! Passing turn...';
+        case 'emmaBloom':
+          return `${playerLabel(player)}'s Emma Bloom reshapes the battlefield.`;
+        default:
+          return `${playerLabel(player)} completes ${card.name}. Passing turn...`;
+      }
+    }
+
+    function generateWinningLines(size, condition) {
+      const lines = [];
+      const index = (row, col) => row * size + col;
+
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col <= size - condition; col++) {
+          const line = [];
+          for (let offset = 0; offset < condition; offset++) {
+            line.push(index(row, col + offset));
+          }
+          lines.push(line);
+        }
+      }
+
+      for (let col = 0; col < size; col++) {
+        for (let row = 0; row <= size - condition; row++) {
+          const line = [];
+          for (let offset = 0; offset < condition; offset++) {
+            line.push(index(row + offset, col));
+          }
+          lines.push(line);
+        }
+      }
+
+      for (let row = 0; row <= size - condition; row++) {
+        for (let col = 0; col <= size - condition; col++) {
+          const line = [];
+          for (let offset = 0; offset < condition; offset++) {
+            line.push(index(row + offset, col + offset));
+          }
+          lines.push(line);
+        }
+      }
+
+      for (let row = 0; row <= size - condition; row++) {
+        for (let col = condition - 1; col < size; col++) {
+          const line = [];
+          for (let offset = 0; offset < condition; offset++) {
+            line.push(index(row + offset, col - offset));
+          }
+          lines.push(line);
+        }
+      }
+
+      return lines;
+    }
+
+    function getBoardSizeForRound(round) {
+      const clamped = Math.max(1, Math.min(round, TOTAL_ROUNDS));
+      return BASE_BOARD_SIZE + (clamped - 1);
+    }
+
+    function computeTileWeights(size) {
+      const weights = [];
+      for (let row = 0; row < size; row++) {
+        for (let col = 0; col < size; col++) {
+          const ring = Math.min(row, col, size - 1 - row, size - 1 - col);
+          weights.push(ring + 1);
+        }
+      }
+      return weights;
+    }
+
+
+    function showWinCelebration(winner) {
+      winMessage.classList.remove('round-summary');
+      winMessage.textContent = `Player ${winner} Wins!`;
+      winOverlay.classList.remove('summary-mode');
+      winOverlay.classList.add('show');
+      document.body.classList.add('shake');
+      setTimeout(() => document.body.classList.remove('shake'), 700);
+      launchConfetti();
+    }
+
+    function hideWinCelebration() {
+      if (roundSummaryTimeout) {
+        clearTimeout(roundSummaryTimeout);
+        roundSummaryTimeout = null;
+      }
+      winOverlay.classList.remove('show');
+      winOverlay.classList.remove('summary-mode');
+      document.body.classList.remove('shake');
+      winMessage.classList.remove('round-summary');
+      clearConfetti();
+    }
+
+    function launchConfetti() {
+      clearConfetti();
+      const colors = ['#ff3864', '#ffd300', '#2ba84a', '#00aaff', '#ffffff'];
+      for (let i = 0; i < 80; i++) {
+        const piece = document.createElement('span');
+        piece.className = 'confetti';
+        piece.style.left = `${Math.random() * 100}%`;
+        piece.style.backgroundColor = colors[i % colors.length];
+        piece.style.animationDuration = `${3 + Math.random() * 2}s`;
+        piece.style.animationDelay = `${Math.random() * 0.5}s`;
+        piece.style.setProperty('--x-move', `${Math.random() * 60 - 30}px`);
+        confettiContainer.appendChild(piece);
+      }
+      setTimeout(clearConfetti, 5000);
+    }
+
+    function clearConfetti() {
+      confettiContainer.innerHTML = '';
+    }
+
+    function prepareAmbushTrap(player) {
+      const state = playerState[player];
+      if (!state) return;
+      state.ambushAvailable = true;
+      if (player === HUMAN) {
+        state.ambushArming = true;
+        statusElement.textContent = 'Select an empty tile to set your ambush trap.';
+      } else {
+        state.ambushArming = false;
+        const idx = chooseAmbushTileFor(player);
+        if (idx === -1) {
+          statusElement.textContent = 'AI tried to set an ambush but found no space.';
+        } else {
+          placeAmbushTrap(player, idx);
+          statusElement.textContent = 'AI has seeded an ambush somewhere on the board!';
+        }
+        state.ambushAvailable = false;
+      }
+    }
+
+    function chooseAmbushTileFor(player) {
+      const empties = getEmptyIndices(board, { includeMystery: true })
+        .filter(idx => !isAmbushMarked(idx));
+      if (!empties.length) return -1;
+      const targeted = empties.filter(idx =>
+        getNeighborIndices(idx).some(neighbor => board[neighbor] === (player === HUMAN ? AI : HUMAN))
+      );
+      const pool = targeted.length ? targeted : empties;
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    function playAmbushEffects() {
+      if (ambushFlashElement) {
+        ambushFlashElement.classList.add('show');
+        if (ambushFlashTimeout) clearTimeout(ambushFlashTimeout);
+        ambushFlashTimeout = setTimeout(() => {
+          ambushFlashElement.classList.remove('show');
+          ambushFlashTimeout = null;
+        }, 1000);
+      }
+      if (ambushAlertElement) {
+        ambushAlertElement.classList.add('show');
+        if (ambushAlertTimeout) clearTimeout(ambushAlertTimeout);
+        ambushAlertTimeout = setTimeout(() => {
+          ambushAlertElement.classList.remove('show');
+          ambushAlertTimeout = null;
+        }, 1000);
+      }
+      document.body.classList.add('ambush-shake');
+      if (ambushShakeTimeout) clearTimeout(ambushShakeTimeout);
+      ambushShakeTimeout = setTimeout(() => {
+        document.body.classList.remove('ambush-shake');
+        ambushShakeTimeout = null;
+      }, 2000);
+    }
+
+    function clearAmbushEffects() {
+      if (ambushFlashTimeout) {
+        clearTimeout(ambushFlashTimeout);
+        ambushFlashTimeout = null;
+      }
+      if (ambushAlertTimeout) {
+        clearTimeout(ambushAlertTimeout);
+        ambushAlertTimeout = null;
+      }
+      if (ambushShakeTimeout) {
+        clearTimeout(ambushShakeTimeout);
+        ambushShakeTimeout = null;
+      }
+      ambushFlashElement?.classList.remove('show');
+      ambushAlertElement?.classList.remove('show');
+      document.body.classList.remove('ambush-shake');
+    }
+
+    function showChainReactionEffects() {
+      if (chainFlashElement) {
+        chainFlashElement.classList.add('show');
+        if (chainFlashTimeout) clearTimeout(chainFlashTimeout);
+        chainFlashTimeout = setTimeout(() => {
+          chainFlashElement.classList.remove('show');
+          chainFlashTimeout = null;
+        }, 1000);
+      }
+      if (chainAlertElement) {
+        chainAlertElement.classList.add('show');
+        if (chainAlertTimeout) clearTimeout(chainAlertTimeout);
+        chainAlertTimeout = setTimeout(() => {
+          chainAlertElement.classList.remove('show');
+          chainAlertTimeout = null;
+        }, 1000);
+      }
+      document.body.classList.add('chain-shake');
+      if (chainShakeTimeout) clearTimeout(chainShakeTimeout);
+      chainShakeTimeout = setTimeout(() => {
+        document.body.classList.remove('chain-shake');
+        chainShakeTimeout = null;
+      }, 2000);
+    }
+
+    function clearChainEffects() {
+      if (chainFlashTimeout) {
+        clearTimeout(chainFlashTimeout);
+        chainFlashTimeout = null;
+      }
+      if (chainAlertTimeout) {
+        clearTimeout(chainAlertTimeout);
+        chainAlertTimeout = null;
+      }
+      if (chainShakeTimeout) {
+        clearTimeout(chainShakeTimeout);
+        chainShakeTimeout = null;
+      }
+      chainFlashElement?.classList.remove('show');
+      chainAlertElement?.classList.remove('show');
+      document.body.classList.remove('chain-shake');
+    }
+
+    function showTileWeightPreview() {
+      weightPreviewActive = true;
+      mysteryTileIndex = -1;
+      const tiles = boardElement.children;
+      board.forEach((cell, idx) => {
+        const tile = tiles[idx];
+        if (!tile) return;
+        tile.classList.remove('mystery');
+        if (!cell) {
+          const value = tileWeights[idx];
+          tile.textContent = value != null ? String(value) : '';
+          tile.classList.add('preview');
+          tile.dataset.preview = '1';
+        }
+      });
+      if (previewTimeout) {
+        clearTimeout(previewTimeout);
+        previewTimeout = null;
+      }
+      previewTimeout = setTimeout(() => {
+        endTileWeightPreview();
+        previewTimeout = null;
+        setupMysteryTile();
+      }, 3000);
+    }
+
+    function endTileWeightPreview() {
+      if (!weightPreviewActive) return;
+      weightPreviewActive = false;
+      [...boardElement.children].forEach((tile, idx) => {
+        if (!tile) return;
+        if (tile.dataset.preview === '1' && !board[idx]) {
+          tile.textContent = '';
+        }
+        tile.classList.remove('preview');
+        tile.removeAttribute('data-preview');
+      });
+    }
+
+    function clearTilePreviewState(idx) {
+      const tile = boardElement.children[idx];
+      if (!tile) return;
+      tile.classList.remove('preview');
+      tile.removeAttribute('data-preview');
+    }
+
+    function setupMysteryTile() {
+      if (weightPreviewActive) return;
+      mysteryTileIndex = -1;
+      if (Math.random() >= MYSTERY_CHANCE) return;
+      const available = getAllIndices().filter(idx => !board[idx]);
+      if (!available.length) return;
+      mysteryTileIndex = available[Math.floor(Math.random() * available.length)];
+      const tile = boardElement.children[mysteryTileIndex];
+      if (tile) {
+        clearTilePreviewState(mysteryTileIndex);
+        tile.textContent = '?';
+        tile.classList.add('mystery');
+      }
+    }
+
+    function isMysteryTile(idx) {
+      return idx === mysteryTileIndex && idx !== -1 && !board[idx];
+    }
+
+    function resolveMysteryTile(player) {
+      if (!isMysteryTile(mysteryTileIndex)) return false;
+      const idx = mysteryTileIndex;
+      const tile = boardElement.children[idx];
+      const symbol = Math.random() < 0.5 ? HUMAN : AI;
+      board[idx] = symbol;
+      mysteryTileIndex = -1;
+      if (tile) {
+        clearTilePreviewState(idx);
+        tile.textContent = symbol;
+        tile.classList.remove('mystery');
+      }
+      statusElement.textContent = `${playerLabel(player)} gambled on the mystery tile... It reveals ${symbol}!`;
+      return true;
+    }
+
+    function attemptAIMysteryTile() {
+      if (mysteryTileIndex === -1 || board[mysteryTileIndex]) return false;
+      const trapOwner = getAmbushOwner(mysteryTileIndex);
+      if (trapOwner && trapOwner !== AI) {
+        resolveAmbushSpring(AI, mysteryTileIndex, trapOwner);
+        return true;
+      }
+      if (trapOwner === AI) {
+        clearAmbushAt(mysteryTileIndex);
+      }
+      const otherMovesAvailable = getEmptyIndices(board).length > 0;
+      const shouldTake = !otherMovesAvailable || Math.random() < 0.35;
+      if (!shouldTake) return false;
+      resolveMysteryTile(AI);
+      return true;
+    }
+
+    window.addEventListener('resize', updateTileScale);
+
+    resetRound(true, { statusMessage: 'Round 1: Player X goes first' });
+  </script>
+
+</body>
+</html>
