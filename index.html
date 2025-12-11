@@ -102,7 +102,7 @@
       line-height: 1;
       color: inherit;
       pointer-events: none;
-      animation: letterFade var(--fade-duration, 2000ms) forwards;
+      animation: letterFade var(--fade-duration, 3000ms) forwards;
     }
 
     @keyframes letterFade {
@@ -702,7 +702,7 @@
       tile.querySelectorAll('.fade-letter').forEach(el => el.remove());
     }
 
-    function animateLetterFade(tile, symbol, duration = 2000) {
+    function animateLetterFade(tile, symbol, duration = 3000) {
       if (!tile || !(symbol === HUMAN || symbol === AI)) return;
       removeTileFadeOverlay(tile);
       const overlay = document.createElement('span');
@@ -1531,7 +1531,6 @@
     function triggerSwitcharoo(player) {
       const state = playerState[player];
       if (!state) return CARD_FLOW.CONTINUE;
-      state.switcharooActive = false;
       const candidates = getSwitcharooCandidates();
       if (!candidates.length) {
         statusElement.textContent = 'Switcharoo finds no letters to flip.';
@@ -1551,23 +1550,21 @@
       flipTileSymbol(target);
       statusElement.textContent = 'AI flips a letter with Switcharoo!';
       evaluateBoardStateAfterAuto();
-      return CARD_FLOW.CONSUME;
+      return CARD_FLOW.CONTINUE;
     }
 
     function attemptSwitcharooSelection(player, idx) {
       const state = playerState[player];
       if (!state?.switcharooActive) return false;
-      state.switcharooActive = false;
       if (!isValidSwitcharooTarget(idx)) {
         statusElement.textContent = 'Switcharoo fizzles on that tile.';
-      } else {
-        flipTileSymbol(idx);
-        statusElement.textContent = `${playerLabel(player)} flips a letter with Switcharoo!`;
-        evaluateBoardStateAfterAuto();
+        return true;
       }
-      if (!gameOver) {
-        processTurnResult(player);
-      }
+      state.switcharooActive = false;
+      state.ready = true;
+      flipTileSymbol(idx);
+      statusElement.textContent = `${playerLabel(player)} flips a letter with Switcharoo! Place your mark.`;
+      evaluateBoardStateAfterAuto();
       return true;
     }
 
