@@ -158,6 +158,7 @@
       letter-spacing: 0.08em;
       color: #ffffff;
       gap: 8px;
+      transform: translateY(-5px);
     }
 
     .score-row .round-status {
@@ -209,7 +210,7 @@
       border: 1px solid rgba(255, 255, 255, 0.12);
       min-height: 110px;
       cursor: pointer;
-      transition: transform 0.15s ease, border 0.15s ease;
+      transition: transform 0.15s ease, border 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
     }
 
     .card:hover {
@@ -227,8 +228,56 @@
       border-color: rgba(64, 216, 255, 0.35);
     }
 
-    .card-panel .card:hover {
-      border-color: #40d8ff;
+    .card-panel.selectable .card {
+      border-color: rgba(64, 216, 255, 0.35);
+      box-shadow: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .card-panel.selectable .card.glow-active {
+      border-color: #00d4ff;
+      box-shadow: 0 0 8px rgba(0, 212, 255, 0.6);
+    }
+
+    .card-panel.selectable .card.glow-active:hover {
+      border-color: #00d4ff;
+      background: rgba(9, 43, 60, 0.95);
+      box-shadow: 0 0 15px rgba(0, 212, 255, 1);
+    }
+
+    .card-panel .card.selected {
+      background: rgba(11, 51, 72, 0.95);
+      border-color: #33c8ff;
+      box-shadow: 0 0 12px rgba(51, 200, 255, 0.5);
+    }
+
+    .card.fade-in .card-title,
+    .card.fade-in .card-text {
+      opacity: 0;
+      animation: textFadeIn 0.26s ease forwards;
+    }
+
+    .card.fade-out .card-title,
+    .card.fade-out .card-text {
+      animation: textFadeOut 0.35s ease forwards;
+    }
+
+    @keyframes textFadeIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes textFadeOut {
+      from {
+        opacity: 1;
+      }
+      to {
+        opacity: 0;
+      }
     }
 
     .card-overlay {
@@ -322,7 +371,7 @@
       box-shadow: 0 0 10px rgba(255, 69, 69, 0.6);
     }
 
-    .square.ai-ambush {
+    .square.ambush.ai-ambush {
       border-color: #2d374f;
       box-shadow: none;
     }
@@ -616,7 +665,7 @@
       { id: 'shatter-rune', name: 'Erasure', description: 'Click an enemy tile to erase it this turn.', effect: 'destroyTile' },
       { id: 'ruin-pulse', name: 'Ruin Pulse', description: 'Charge a pulse that destroys one enemy tile.', effect: 'destroyTile' },
       { id: 'cataclysm-weave', name: 'Cataclysm', description: 'Detonate a tile to erase every connected enemy letter.', effect: 'destroyConnected' },
-      { id: 'ambush-snare', name: 'Ambush', description: 'Mark an empty tile. The next foe to play there loses every connected letter.', effect: 'ambushTrap' }
+      { id: 'ambush-snare', name: 'Ambush', description: 'Mark an empty tile. The next foe there loses all connected letters.', effect: 'ambushTrap' }
     ];
     const winOverlay = document.getElementById('winOverlay');
     const winMessage = document.getElementById('winMessage');
@@ -850,6 +899,19 @@
 
     function processTurnResult(player) {
       if (checkGameState()) return;
+      
+      // Check for forced ambush move before switching turns
+      const forcedAmbushResult = checkForcedAmbushMove();
+      if (forcedAmbushResult === 'activated') {
+        // Ambush was activated, resolveAmbushSpring already handled turn switching
+        // Just check game state again to see if game ended
+        checkGameState();
+        return;
+      } else if (forcedAmbushResult === 'draw') {
+        handleDraw('Player X must play on their own ambush. Round ends in a draw.');
+        return;
+      }
+      
       if (grantExtraTurn(player)) return;
       switchTurns(player);
     }
@@ -886,10 +948,48 @@
       startCardDraftFor(currentPlayer);
     }
 
+    function checkForcedAmbushMove() {
+      // Get all empty tiles (not blocked, not mystery, not already occupied)
+      const emptyTiles = getEmptyIndices(board, { includeMystery: false });
+      
+      // If there's exactly one empty tile left
+      if (emptyTiles.length === 1) {
+        const lastTile = emptyTiles[0];
+        const ambushOwner = getAmbushOwner(lastTile);
+        
+        // If it's an opponent's ambush, force the move and activate it
+        if (ambushOwner && ambushOwner !== currentPlayer) {
+          if (currentPlayer === HUMAN) {
+            resolveAmbushSpring(HUMAN, lastTile, ambushOwner);
+          } else {
+            resolveAmbushSpring(AI, lastTile, ambushOwner);
+          }
+          return 'activated';
+        }
+        
+        // If it's the X player's own ambush and it's the last tile, it's a draw
+        if (ambushOwner === HUMAN && currentPlayer === HUMAN) {
+          return 'draw';
+        }
+      }
+      
+      return null;
+    }
+
     function checkGameState() {
       const winnerInfo = getWinner(board);
       if (winnerInfo) {
         handleWin(winnerInfo);
+        return true;
+      }
+
+      // Check for forced ambush move before checking for draw
+      const forcedAmbushResult = checkForcedAmbushMove();
+      if (forcedAmbushResult === 'activated') {
+        // Ambush was activated, check game state again after
+        return checkGameState();
+      } else if (forcedAmbushResult === 'draw') {
+        handleDraw('Player X must play on their own ambush. Round ends in a draw.');
         return true;
       }
 
@@ -915,7 +1015,7 @@
       setTimeout(() => {
         showWinCelebration(winner);
         completeRound({ winner });
-      }, 1500);
+      }, 1250);
     }
 
     function handleDraw(message) {
@@ -1156,6 +1256,21 @@
         processTurnResult(AI);
         return;
       }
+      
+      // Check for forced ambush move before finding best move
+      const forcedAmbushResult = checkForcedAmbushMove();
+      if (forcedAmbushResult === 'activated') {
+        // Ambush was activated, resolveAmbushSpring already handled turn switching
+        // Just check game state to see if game ended
+        waitingForAI = false;
+        checkGameState();
+        return;
+      } else if (forcedAmbushResult === 'draw') {
+        waitingForAI = false;
+        triggerForcedDraw('Player X must play on their own ambush. Round ends in a draw.');
+        return;
+      }
+      
       const move = findBestMove(board);
       if (move === -1) {
         waitingForAI = false;
@@ -1305,12 +1420,36 @@
       state.ambushAvailable = false;
       state.ambushArming = false;
       state.hexArming = false;
-      renderCardChoices(player);
       if (player === HUMAN) {
+        renderCardChoices(player);
         waitingForAI = false;
         statusElement.textContent = 'Player X goes first';
         cardPanels.X?.panel?.classList?.add('selectable');
       } else {
+        // Fade out text in human player's cards when AI's turn starts (left to right, 1 second total)
+        const humanGrid = cardPanels[HUMAN]?.grid;
+        if (humanGrid) {
+          [...humanGrid.children].forEach((cardEl, idx) => {
+            if (cardEl && cardEl.querySelector('.card-title')) {
+              cardEl.classList.remove('fade-in', 'selected', 'glow-active');
+              // Apply staggered fade-out delays: 0ms, 325ms, 650ms (total ~1 second)
+              const titleEl = cardEl.querySelector('.card-title');
+              const textEl = cardEl.querySelector('.card-text');
+              if (titleEl) titleEl.style.animationDelay = `${idx * 325}ms`;
+              if (textEl) textEl.style.animationDelay = `${idx * 325}ms`;
+              cardEl.classList.add('fade-out');
+              // Clear text after all animations complete (1 second)
+              setTimeout(() => {
+                cardEl.innerHTML = '';
+                cardEl.classList.remove('fade-out');
+                if (titleEl) titleEl.style.animationDelay = '';
+                if (textEl) textEl.style.animationDelay = '';
+              }, 1000);
+            }
+          });
+        }
+        // Generate choices for AI but don't render them
+        generateCardChoices(player);
         waitingForAI = true;
         statusElement.textContent = 'AI is drawing a card...';
         cardPanels.X?.panel?.classList?.remove('selectable');
@@ -1338,26 +1477,72 @@
       return true;
     }
 
-    function renderCardChoices(player) {
+    function generateCardChoices(player) {
       const choices = [drawCard(), drawCard(), drawCard()];
       playerState[player].choices = choices;
+      return choices;
+    }
+
+    function renderCardChoices(player) {
+      const choices = generateCardChoices(player);
       const grid = cardPanels[player]?.grid;
       if (!grid) return;
-      grid.innerHTML = '';
+      
+      // Ensure we have 3 card elements (create blank ones if needed)
+      while (grid.children.length < 3) {
+        const blankCard = document.createElement('div');
+        blankCard.className = 'card disabled';
+        blankCard.innerHTML = '';
+        grid.appendChild(blankCard);
+      }
+      
+      // Update existing cards in place - never remove or replace the DOM elements
       choices.forEach((card, idx) => {
-        const cardEl = document.createElement('div');
-        cardEl.className = 'card';
+        const cardEl = grid.children[idx];
+        if (!cardEl) return;
+        
+        // Update content directly - this keeps the element in place visually
+        cardEl.className = 'card fade-in';
+        cardEl.classList.remove('glow-active');
         cardEl.innerHTML = `
-          <div class="card-title">${card.name}</div>
-          <p class="card-text">${card.description}</p>
+          <div class="card-title" style="animation-delay: ${idx * 244}ms">${card.name}</div>
+          <p class="card-text" style="animation-delay: ${idx * 244}ms">${card.description}</p>
         `;
+        
+        // Use event delegation on the grid instead of individual listeners
+        // This avoids needing to remove old listeners
         if (player === HUMAN) {
-          cardEl.addEventListener('click', () => handleCardSelection(player, idx));
+          cardEl.classList.remove('disabled');
+          // Remove any existing data attribute and set new one for delegation
+          cardEl.removeAttribute('data-card-index');
+          cardEl.setAttribute('data-card-index', idx);
+          
+          // Add glow when text finishes fading in (0.26s animation + delay)
+          const glowDelay = (idx * 244) + 260;
+          setTimeout(() => {
+            cardEl.classList.add('glow-active');
+          }, glowDelay);
         } else {
           cardEl.classList.add('disabled');
         }
-        grid.appendChild(cardEl);
       });
+      
+      // Set up event delegation on the grid if human player
+      if (player === HUMAN) {
+        // Remove old delegation listener if any
+        grid.removeEventListener('click', grid._cardClickHandler);
+        // Create new delegation handler
+        grid._cardClickHandler = (e) => {
+          const cardEl = e.target.closest('.card');
+          if (cardEl && !cardEl.classList.contains('disabled')) {
+            const idx = parseInt(cardEl.getAttribute('data-card-index'));
+            if (!isNaN(idx)) {
+              handleCardSelection(player, idx);
+            }
+          }
+        };
+        grid.addEventListener('click', grid._cardClickHandler);
+      }
     }
 
     function handleCardSelection(player, choiceIndex) {
@@ -1744,7 +1929,7 @@
 
     function hexTile(idx) {
       if (idx < 0 || idx >= board.length) return;
-      if (board[idx] || board[idx] === 'BLOCK') return;
+      if (board[idx] || board[idx] === 'BLOCK' || isMysteryTile(idx)) return;
       clearAmbushAt(idx);
       board[idx] = 'BLOCK';
       clearTilePreviewState(idx);
@@ -2080,6 +2265,11 @@
         clearAmbushAt(targetIdx);
         
         if (btn) {
+          // Immediately re-enable the tile since board state is cleared
+          // This prevents tiles from appearing empty but being unclickable
+          btn.disabled = false;
+          btn.classList.remove('win', 'blocked');
+          
           const distance = distanceMap.get(targetIdx) || 0;
           const delay = maxDistance > 0 
             ? (distance / maxDistance) * (TOTAL_DURATION - FADE_DURATION)
@@ -2088,8 +2278,6 @@
           setTimeout(() => {
             removeTileFadeOverlay(btn);
             btn.textContent = '';
-            btn.disabled = false;
-            btn.classList.remove('win', 'blocked');
             clearTileMark(btn);
             
             if (removedSymbol === HUMAN || removedSymbol === AI) {
@@ -2139,19 +2327,18 @@
       const tile = boardElement.children[idx];
       if (!tile) return;
       clearTilePreviewState(idx);
+      tile.classList.add('ambush');
       tile.dataset.ambush = '1';
       const owner = ambushTraps.get(idx);
       if (owner === AI) {
-        tile.classList.remove('ambush');
         tile.classList.add('ai-ambush');
       } else {
-        tile.classList.add('ambush');
         tile.classList.remove('ai-ambush');
       }
     }
 
     function placeAmbushTrap(player, idx) {
-      if (board[idx] || isAmbushMarked(idx)) return false;
+      if (board[idx] || isAmbushMarked(idx) || isMysteryTile(idx)) return false;
       ambushTraps.set(idx, player);
       renderAmbushTile(idx);
       return true;
@@ -2170,7 +2357,7 @@
     function attemptAmbushPlacement(player, idx) {
       const state = playerState[player];
       if (!state?.ambushArming) return;
-      if (board[idx] || board[idx] === 'BLOCK' || isAmbushMarked(idx)) {
+      if (board[idx] || board[idx] === 'BLOCK' || isAmbushMarked(idx) || isMysteryTile(idx)) {
         statusElement.textContent = 'Choose an empty tile for your ambush.';
         return;
       }
@@ -2381,7 +2568,7 @@
     }
 
     function chooseAmbushTileFor(player) {
-      const empties = getEmptyIndices(board, { includeMystery: true })
+      const empties = getEmptyIndices(board, { includeMystery: false })
         .filter(idx => !isAmbushMarked(idx));
       if (!empties.length) return -1;
       const targeted = empties.filter(idx =>
