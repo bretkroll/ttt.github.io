@@ -682,7 +682,7 @@
 </head>
 <body>
   <div class="app">
-    <h1>Tactic•Tac•Toe</h1>
+    <h1>Tactic • Tac • Toe</h1>
     <div id="status" class="status" aria-hidden="true"></div>
     <div id="board" class="board"></div>
     <div class="score-row">
@@ -993,12 +993,11 @@
 
       const trapOwner = getAmbushOwner(idx);
       if (trapOwner && trapOwner !== HUMAN) {
+        // Opponent's ambush - trigger it
         resolveAmbushSpring(HUMAN, idx, trapOwner);
         return;
       }
-      if (trapOwner === HUMAN) {
-        clearAmbushAt(idx);
-      }
+      // If placing on own ambush, makeMove will clear it (via checkAndTriggerAmbush)
 
       if (isMysteryTile(idx) && resolveMysteryTile(HUMAN, idx)) {
         processTurnResult(HUMAN);
@@ -1012,7 +1011,7 @@
       if (enemyGhost && enemyGhost.owner !== HUMAN && enemyGhost.turns < 3) {
         clearGhostAt(idx);
         statusElement.textContent = 'You claimed the tile and destroyed the enemy ghost!';
-        makeMove(idx, HUMAN);
+        makeMove(idx, HUMAN); // checkAndTriggerAmbush will handle own ambush clearing
         processTurnResult(HUMAN);
         return;
       }
@@ -1021,7 +1020,7 @@
       if (isGhostTile(idx)) {
         clearGhostAt(idx);
       }
-      makeMove(idx, HUMAN);
+      makeMove(idx, HUMAN); // checkAndTriggerAmbush will handle own ambush clearing
       processTurnResult(HUMAN);
     }
 
@@ -1284,7 +1283,7 @@
       }, Math.max(0, delay));
     }
 
-    function makeMove(idx, player) {
+    function makeMove(idx, player, skipAmbushCheck = false) {
       // Clear ghost if present
       if (isGhostTile(idx)) {
         clearGhostAt(idx);
@@ -1297,6 +1296,24 @@
         tile.textContent = player;
         applyTileMark(tile, player);
       }
+      // Check for ambush after placing tile (unless already handling it)
+      if (!skipAmbushCheck) {
+        checkAndTriggerAmbush(idx, player);
+      }
+    }
+
+    function checkAndTriggerAmbush(idx, player) {
+      const ambushOwner = getAmbushOwner(idx);
+      if (ambushOwner && ambushOwner !== player) {
+        // Opposing player placed on ambush - trigger it
+        triggerAmbush(idx, player, ambushOwner);
+        finishAmbushTurn(player);
+        return true; // Ambush was triggered
+      } else if (ambushOwner === player) {
+        // Player placed on their own ambush - just clear it
+        clearAmbushAt(idx);
+      }
+      return false; // No ambush triggered
     }
 
     function highlightWinner(line) {
@@ -1457,17 +1474,16 @@
       
       const trapOwner = getAmbushOwner(move);
       if (trapOwner && trapOwner !== AI) {
+        // Opponent's ambush - trigger it
         resolveAmbushSpring(AI, move, trapOwner);
         return;
       }
-      if (trapOwner === AI) {
-        clearAmbushAt(move);
-      }
+      // If placing on own ambush, makeMove will clear it (via checkAndTriggerAmbush)
       // Clear own ghost if present
       if (isGhostTile(move)) {
         clearGhostAt(move);
       }
-      makeMove(move, AI);
+      makeMove(move, AI); // checkAndTriggerAmbush will handle own ambush clearing
       processTurnResult(AI);
     }
 
@@ -2033,9 +2049,21 @@
     }
 
     function executeEmmaBloom(player, originIdx) {
-      convertTileToPlayer(originIdx, player);
+      // Convert origin tile (this might trigger an ambush)
+      const originAmbushTriggered = convertTileToPlayer(originIdx, player);
+      if (originAmbushTriggered) {
+        // Ambush was triggered on origin, stop processing neighbors
+        return;
+      }
+      // Convert neighbor tiles (each might trigger an ambush)
       const neighbors = getEmmaBloomNeighbors(originIdx);
-      neighbors.forEach(neighbor => convertTileToPlayer(neighbor, player));
+      for (const neighbor of neighbors) {
+        const neighborAmbushTriggered = convertTileToPlayer(neighbor, player);
+        if (neighborAmbushTriggered) {
+          // Ambush was triggered on a neighbor, stop processing
+          return;
+        }
+      }
       statusElement.textContent = `${playerLabel(player)}'s Emma Bloom overtakes nearby tiles!`;
       evaluateBoardStateAfterAuto();
     }
@@ -2045,7 +2073,6 @@
       if (mysteryTileIndices.includes(idx)) {
         mysteryTileIndices = mysteryTileIndices.filter(i => i !== idx);
       }
-      clearAmbushAt(idx);
       clearGhostAt(idx);
       const btn = boardElement.children[idx];
       if (btn) {
@@ -2056,6 +2083,13 @@
         btn.classList.remove('win', 'blocked', 'mystery');
         applyTileMark(btn, player);
       }
+      // Check for ambush after placing tile (don't clear ambush before checking)
+      const ambushTriggered = checkAndTriggerAmbush(idx, player);
+      if (ambushTriggered) {
+        // Ambush was triggered, don't continue with normal flow
+        return true;
+      }
+      return false;
     }
 
     function getOwnedTileIndices(player) {
@@ -2729,14 +2763,14 @@
       if (ghost && ghost.turns < 3) {
         // Ghost hasn't formed yet, so ambush doesn't trigger
         // The ghost will trigger the ambush when it materializes
-        makeMove(idx, player);
+        makeMove(idx, player, true); // Skip ambush check, we're handling it
         // Mark that this ghost will trigger ambush when it forms
         ghost.ambushOwner = owner;
         finishAmbushTurn(player);
         return;
       }
       // No ghost or ghost is formed, trigger ambush normally
-      makeMove(idx, player);
+      makeMove(idx, player, true); // Skip ambush check, we're handling it
       triggerAmbush(idx, player, owner);
       finishAmbushTurn(player);
     }
@@ -3215,8 +3249,6 @@
         
         // If ghost becomes fully opaque (turn 3), convert to real tile
         if (ghost.turns >= 3 && !board[idx]) {
-          board[idx] = ghost.owner;
-          const ambushOwner = getAmbushOwner(idx);
           const owner = ghost.owner;
           ghostTiles.delete(idx);
           const tile = boardElement.children[idx];
@@ -3226,20 +3258,16 @@
             if (ghostMark) {
               ghostMark.remove();
             }
-            tile.textContent = owner;
-            applyTileMark(tile, owner);
           }
-          
-          // Check if this tile has an ambush - if so, trigger it now that ghost is formed
-          if (ambushOwner && ambushOwner !== owner) {
-            // Ghost materialized on opponent's ambush - trigger ambush
-            triggerAmbush(idx, owner, ambushOwner);
-            finishAmbushTurn(owner);
+          // Place the tile first, then check for ambush
+          makeMove(idx, owner, true); // Skip ambush check, we'll handle it manually
+          const ambushTriggered = checkAndTriggerAmbush(idx, owner);
+          if (ambushTriggered) {
             statusElement.textContent = `${playerLabel(owner)}'s ghost materializes and triggers an ambush!`;
           } else {
             statusElement.textContent = `${playerLabel(owner)}'s ghost materializes!`;
+            evaluateBoardStateAfterAuto();
           }
-          evaluateBoardStateAfterAuto();
         }
       });
     }
@@ -3388,14 +3416,11 @@
       if (!isMysteryTile(idx)) return false;
       const tile = boardElement.children[idx];
       const symbol = Math.random() < 0.5 ? HUMAN : AI;
-      board[idx] = symbol;
       mysteryTileIndices = mysteryTileIndices.filter(i => i !== idx);
+      // Use makeMove to place the tile (this will check for ambushes)
+      makeMove(idx, symbol);
       if (tile) {
-        removeTileFadeOverlay(tile);
-        clearTilePreviewState(idx);
-        tile.textContent = symbol;
         tile.classList.remove('mystery');
-        applyTileMark(tile, symbol);
       }
       statusElement.textContent = `${playerLabel(player)} gambled on the mystery tile... It reveals ${symbol}!`;
       return true;
