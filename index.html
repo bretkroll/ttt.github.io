@@ -108,6 +108,24 @@
       to { opacity: 0; }
     }
 
+    .hover-preview {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-weight: inherit;
+      font-size: 1em;
+      line-height: 1;
+      opacity: 0;
+      color: inherit;
+      pointer-events: none;
+      transition: opacity 0.24s ease;
+    }
+
+    .hover-preview.visible {
+      opacity: 0.28125;
+    }
+
     .controls {
       margin-top: 22px;
       display: flex;
@@ -293,6 +311,11 @@
     .square.ambush {
       border-color: #ff4545;
       box-shadow: 0 0 10px rgba(255, 69, 69, 0.6);
+    }
+
+    .square.ambush.ai-ambush {
+      border-color: #ffffff;
+      box-shadow: 0 0 12px rgba(255, 255, 255, 0.6);
     }
 
     .win-overlay {
@@ -628,6 +651,11 @@
     let chainFlashTimeout = null;
     let chainAlertTimeout = null;
     let chainShakeTimeout = null;
+    let aiCataclysmPending = false;
+
+    function randomDelay(min, max) {
+      return min + Math.random() * (max - min);
+    }
     let campaignOverlayTimeout = null;
 
     function createEmptyState() {
@@ -648,6 +676,65 @@
       };
     }
 
+    function isHumanPlacementPhase() {
+      const state = playerState[HUMAN];
+      if (!state) return false;
+      if (gameOver || waitingForAI || currentPlayer !== HUMAN) return false;
+      if (!state.ready || state.awaitingChoice) return false;
+      if (state.ambushArming || state.emmaBloomArming || state.switcharooActive) return false;
+      return true;
+    }
+
+    function shouldShowHoverPreview(idx) {
+      if (!Number.isInteger(idx)) return false;
+      if (!isHumanPlacementPhase()) return false;
+      if (board[idx]) return false;
+      const tile = boardElement.children[idx];
+      if (!tile || tile.disabled) return false;
+      if (tile.classList.contains('mystery')) return false;
+      return true;
+    }
+
+    function showHoverPreview(tile, symbol) {
+      if (!tile) return;
+      let overlay = tile.querySelector('.hover-preview');
+      if (!overlay) {
+        overlay = document.createElement('span');
+        overlay.className = 'hover-preview';
+        tile.appendChild(overlay);
+      }
+      if (overlay._fadeTimer) {
+        clearTimeout(overlay._fadeTimer);
+        overlay._fadeTimer = null;
+      }
+      overlay.textContent = symbol;
+      overlay.style.color = symbol === HUMAN ? '#4fd4ff' : '#ff5c7d';
+      requestAnimationFrame(() => overlay.classList.add('visible'));
+    }
+
+    function hideHoverPreview(tile, immediate = false) {
+      if (!tile) return;
+      const overlay = tile.querySelector('.hover-preview');
+      if (!overlay) return;
+      if (overlay._fadeTimer) {
+        clearTimeout(overlay._fadeTimer);
+        overlay._fadeTimer = null;
+      }
+      if (immediate) {
+        overlay.remove();
+        return;
+      }
+      overlay.classList.remove('visible');
+      overlay._fadeTimer = setTimeout(() => {
+        overlay.remove();
+        overlay._fadeTimer = null;
+      }, 240);
+    }
+
+    function clearAllHoverPreviews() {
+      [...boardElement.children].forEach(tile => hideHoverPreview(tile, true));
+    }
+
     function initBoard() {
       boardElement.innerHTML = '';
       boardElement.style.gridTemplateColumns = `repeat(${boardSize}, 1fr)`;
@@ -656,6 +743,8 @@
         btn.className = 'square';
         btn.dataset.index = idx;
         btn.addEventListener('click', handleMove);
+        btn.addEventListener('mouseenter', handleHoverEnter);
+        btn.addEventListener('mouseleave', handleHoverLeave);
         boardElement.appendChild(btn);
       }
       updateTileScale();
@@ -707,6 +796,7 @@
 
     function handleMove(event) {
       const idx = Number(event.currentTarget.dataset.index);
+      hideHoverPreview(event.currentTarget, true);
       if (gameOver || currentPlayer !== HUMAN || waitingForAI) return;
       if (playerState[HUMAN].awaitingChoice || playerState[AI].awaitingChoice) return;
       if (playerState[HUMAN].ambushArming) {
@@ -751,6 +841,20 @@
       if (checkGameState()) return;
       if (grantExtraTurn(player)) return;
       switchTurns(player);
+    }
+
+    function handleHoverEnter(event) {
+      const tile = event.currentTarget;
+      const idx = Number(tile.dataset.index);
+      if (shouldShowHoverPreview(idx)) {
+        showHoverPreview(tile, HUMAN);
+      } else {
+        hideHoverPreview(tile);
+      }
+    }
+
+    function handleHoverLeave(event) {
+      hideHoverPreview(event.currentTarget);
     }
 
     function grantExtraTurn(player) {
@@ -945,6 +1049,7 @@
     function disableBoard() {
       [...boardElement.children].forEach(btn => btn.disabled = true);
       waitingForAI = false;
+      clearAllHoverPreviews();
     }
 
     function resetRound(arg1 = {}, arg2 = {}) {
@@ -973,6 +1078,7 @@
       clearAmbushEffects();
       clearChainEffects();
 
+      aiCataclysmPending = false;
       if (resetCampaign || options.resetCampaign) {
         scores.X = 0;
         scores.O = 0;
@@ -1172,6 +1278,7 @@
     }
 
     function startCardDraftFor(player) {
+      clearAllHoverPreviews();
       const state = playerState[player];
       state.awaitingChoice = true;
       state.ready = false;
@@ -1194,10 +1301,11 @@
         statusElement.textContent = 'AI is drawing a card...';
         cardPanels.X?.panel?.classList?.remove('selectable');
         if (aiChoiceTimeout) clearTimeout(aiChoiceTimeout);
+        const aiDrawDelay = Math.round(randomDelay(750, 1250));
         aiChoiceTimeout = setTimeout(() => {
           applyAISelection();
           aiChoiceTimeout = null;
-        }, 1200);
+        }, aiDrawDelay);
       }
     }
 
@@ -1324,11 +1432,12 @@
         }
         state.ready = true;
         statusElement.textContent = 'AI is thinking...';
+        const aiMoveDelay = Math.round(randomDelay(1250, 1750));
         setTimeout(() => {
           if (!gameOver && currentPlayer === AI) {
             aiMove();
           }
-        }, 300);
+        }, aiMoveDelay);
       }
     }
 
@@ -1343,6 +1452,19 @@
 
     function chooseBestAICardIndex(choices) {
       if (!choices.length) return 0;
+      aiCataclysmPending = false;
+      const ambushIdx = choices.findIndex(card => card.effect === 'ambushTrap');
+      if (ambushIdx !== -1) {
+        return ambushIdx;
+      }
+      const catIdx = choices.findIndex(card => card.effect === 'destroyConnected');
+      if (catIdx !== -1) {
+        const bestCluster = getBestCataclysmTarget();
+        if (bestCluster.size >= 4) {
+          aiCataclysmPending = true;
+          return catIdx;
+        }
+      }
       const roll = Math.random();
       const preferredOrder = ['extraTurn', 'destroyConnected', 'emmaBloom', 'destroyTile', 'cleanseTile', 'claimCenter', 'claimCorner', 'claimEdge', 'claimRandom', 'doubleVoid', 'voidTile'];
       const scored = choices.map((card, idx) => {
@@ -1687,7 +1809,20 @@
     }
 
     function maybeAIDestroyTile() {
-      if (!canUseDestroy(AI)) return;
+      if (!canUseDestroy(AI)) {
+        aiCataclysmPending = false;
+        return;
+      }
+      if (aiCataclysmPending) {
+        const bestTarget = getBestCataclysmTarget();
+        if (bestTarget.index !== -1 && bestTarget.size >= 2) {
+          const cardName = playerState[AI].card?.name || 'an ability';
+          aiCataclysmPending = false;
+          useDestroyAbility(AI, bestTarget.index, `AI unleashed ${cardName} to collapse your tiles.`);
+          return;
+        }
+        aiCataclysmPending = false;
+      }
       const target = findHumanTileToDestroy();
       if (target === -1) return;
       const cardName = playerState[AI].card?.name || 'an ability';
@@ -1710,6 +1845,23 @@
       });
       if (candidate !== -1) return candidate;
       return board.findIndex(cell => cell === HUMAN);
+    }
+
+    function getBestCataclysmTarget() {
+      const visited = new Set();
+      let bestSize = 0;
+      let bestIndex = -1;
+      for (let idx = 0; idx < board.length; idx++) {
+        if (board[idx] === HUMAN && !visited.has(idx)) {
+          const cluster = getConnectedCluster(idx, HUMAN);
+          cluster.forEach(node => visited.add(node));
+          if (cluster.length > bestSize) {
+            bestSize = cluster.length;
+            bestIndex = idx;
+          }
+        }
+      }
+      return { index: bestIndex, size: bestSize };
     }
 
     function getEmptyIndices(state, options = {}) {
@@ -1835,6 +1987,12 @@
       clearTilePreviewState(idx);
       tile.classList.add('ambush');
       tile.dataset.ambush = '1';
+      const owner = ambushTraps.get(idx);
+      if (owner === AI) {
+        tile.classList.add('ai-ambush');
+      } else {
+        tile.classList.remove('ai-ambush');
+      }
     }
 
     function placeAmbushTrap(player, idx) {
@@ -1849,7 +2007,7 @@
       ambushTraps.delete(idx);
       const tile = boardElement.children[idx];
       if (tile) {
-        tile.classList.remove('ambush');
+        tile.classList.remove('ambush', 'ai-ambush');
         tile.removeAttribute('data-ambush');
       }
     }
