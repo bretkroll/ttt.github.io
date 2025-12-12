@@ -751,7 +751,7 @@
       { id: 'starlit-bloom', name: 'Starlit Bloom', description: 'A random tile erupts under your control.', effect: 'claimRandom' },
       { id: 'void-rift', name: 'Hexed', description: 'Select a tile to curse. Nobody can use it this round.', effect: 'voidTile' },
       { id: 'purify-sigil', name: 'Purify Sigil', description: 'Cleanses a random cursed tile right now.', effect: 'cleanseTile' },
-      { id: 'emma-bloom', name: 'Emma Bloom', description: 'Pick one of your tiles; all adjacent tiles become yours.', effect: 'emmaBloom' },
+      { id: 'emma-bloom', name: 'Emma Bloom', description: 'Select an opponent tile; surrounding tiles become yours.', effect: 'emmaBloom' },
       { id: 'switcharoo', name: 'Switcharoo', description: 'Tap any letter to swap it to the other team.', effect: 'switcharoo' },
       { id: 'shatter-rune', name: 'Erasure', description: 'Click an enemy tile to erase it this turn.', effect: 'destroyTile' },
       { id: 'ruin-pulse', name: 'Ruin Pulse', description: 'Charge a pulse that destroys one enemy tile.', effect: 'destroyTile' },
@@ -2013,18 +2013,19 @@
     function triggerEmmaBloom(player) {
       const state = playerState[player];
       if (!state) return CARD_FLOW.CONTINUE;
-      const ownedTiles = getOwnedTileIndices(player);
-      if (!ownedTiles.length) {
-        statusElement.textContent = `${playerLabel(player)} has no tiles to empower.`;
+      const opponent = player === HUMAN ? AI : HUMAN;
+      const opponentTiles = getOwnedTileIndices(opponent);
+      if (!opponentTiles.length) {
+        statusElement.textContent = `${playerLabel(player)} has no opponent tiles to target.`;
         return CARD_FLOW.CONTINUE;
       }
       if (player === HUMAN) {
         state.emmaBloomArming = true;
         state.ready = false;
-        statusElement.textContent = 'Select one of your tiles to unleash Emma Bloom.';
+        statusElement.textContent = 'Select an opponent tile to unleash Emma Bloom.';
         return CARD_FLOW.PENDING;
       }
-      const choice = chooseEmmaBloomTile(player, ownedTiles);
+      const choice = chooseEmmaBloomTile(player, opponentTiles);
       if (choice === -1) {
         statusElement.textContent = 'Emma Bloom fizzles with no valid target.';
         return CARD_FLOW.CONTINUE;
@@ -2036,8 +2037,9 @@
     function attemptEmmaBloomSelection(player, idx) {
       const state = playerState[player];
       if (!state?.emmaBloomArming) return;
-      if (board[idx] !== player) {
-        statusElement.textContent = 'Select one of your own tiles for Emma Bloom.';
+      const opponent = player === HUMAN ? AI : HUMAN;
+      if (board[idx] !== opponent) {
+        statusElement.textContent = 'Select an opponent tile for Emma Bloom.';
         return;
       }
       state.emmaBloomArming = false;
@@ -2049,13 +2051,8 @@
     }
 
     function executeEmmaBloom(player, originIdx) {
-      // Convert origin tile (this might trigger an ambush)
-      const originAmbushTriggered = convertTileToPlayer(originIdx, player);
-      if (originAmbushTriggered) {
-        // Ambush was triggered on origin, stop processing neighbors
-        return;
-      }
-      // Convert neighbor tiles (each might trigger an ambush)
+      // Don't convert the origin tile - it stays as opponent's tile
+      // Only convert the 8 surrounding neighbor tiles
       const neighbors = getEmmaBloomNeighbors(originIdx);
       for (const neighbor of neighbors) {
         const neighborAmbushTriggered = convertTileToPlayer(neighbor, player);
@@ -2098,15 +2095,19 @@
         .filter(idx => idx !== null);
     }
 
-    function chooseEmmaBloomTile(player, ownedTiles = null) {
-      const owned = ownedTiles || getOwnedTileIndices(player);
-      if (!owned.length) return -1;
-      let bestIdx = owned[0];
+    function chooseEmmaBloomTile(player, opponentTiles = null) {
+      const opponent = player === HUMAN ? AI : HUMAN;
+      const tiles = opponentTiles || getOwnedTileIndices(opponent);
+      if (!tiles.length) return -1;
+      let bestIdx = tiles[0];
       let bestScore = -1;
-      owned.forEach(idx => {
-        const neighbors = getNeighborIndices(idx);
+      tiles.forEach(idx => {
+        const neighbors = getEmmaBloomNeighbors(idx);
         const score = neighbors.reduce((total, neighbor) => {
-          return total + (board[neighbor] === player ? 0 : 1);
+          // Prefer tiles with more neighbors that can be converted (not already player's, not blocked)
+          if (board[neighbor] === player) return total;
+          if (board[neighbor] === 'BLOCK' || isMysteryTile(neighbor) || isGhostTile(neighbor)) return total;
+          return total + 1;
         }, 0);
         if (score > bestScore) {
           bestScore = score;
