@@ -41,7 +41,15 @@
     }
 
     .status {
-      display: none;
+      display: block;
+      margin: 16px 0;
+      padding: 12px;
+      text-align: center;
+      font-size: 16px;
+      color: #cfd9ff;
+      background: rgba(15, 22, 38, 0.6);
+      border-radius: 8px;
+      min-height: 20px;
     }
 
     .board {
@@ -383,7 +391,7 @@
     }
 
     .square.preview {
-      color: #2a2a2a;
+      color: #4a4a4a;
       font-weight: 600;
     }
 
@@ -441,6 +449,11 @@
 
     .square.ghost.hidden-ghost .ghost-mark {
       opacity: 0;
+    }
+
+    .square.fortress {
+      border: 3px solid #ffffff;
+      box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
     }
 
     .win-overlay {
@@ -683,7 +696,7 @@
 <body>
   <div class="app">
     <h1>Tac • Tic • Tac • Toe</h1>
-    <div id="status" class="status" aria-hidden="true"></div>
+    <div id="status" class="status" aria-live="polite"></div>
     <div id="board" class="board"></div>
     <div class="score-row">
       <span class="score-label">X Pts: <strong id="scoreX">0</strong></span>
@@ -757,7 +770,8 @@
       { id: 'ruin-pulse', name: 'Ruin Pulse', description: 'Charge a pulse that destroys one enemy tile.', effect: 'destroyTile' },
       { id: 'cataclysm-weave', name: 'Cataclysm', description: 'Detonate a tile to erase every connected enemy letter.', effect: 'destroyConnected' },
       { id: 'ambush-snare', name: 'Ambush', description: 'Mark an empty tile. The next foe there loses all connected letters.', effect: 'ambushTrap' },
-      { id: 'ghosts', name: 'Ghosts', description: 'Spawn 3 ghosts on random tiles. They materialize after 3 turns.', effect: 'ghosts' }
+      { id: 'ghosts', name: 'Ghosts', description: 'Spawn 3 ghosts on random tiles. They materialize after 3 turns.', effect: 'ghosts' },
+      { id: 'fortress', name: 'Fortress', description: 'Place a letter; tile becomes permanent this round.', effect: 'fortress' }
     ];
     const winOverlay = document.getElementById('winOverlay');
     const winMessage = document.getElementById('winMessage');
@@ -802,6 +816,7 @@
     let chainAlertTimeout = null;
     let chainShakeTimeout = null;
     let aiCataclysmPending = false;
+    let fortressTiles = new Set();
 
     function randomDelay(min, max) {
       return min + Math.random() * (max - min);
@@ -823,7 +838,8 @@
         ambushArming: false,
         emmaBloomArming: false,
         switcharooActive: false,
-        hexArming: false
+        hexArming: false,
+        fortressArming: false
       };
     }
 
@@ -832,7 +848,7 @@
       if (!state) return false;
       if (gameOver || waitingForAI || currentPlayer !== HUMAN) return false;
       if (!state.ready || state.awaitingChoice) return false;
-      if (state.ambushArming || state.emmaBloomArming || state.switcharooActive || state.hexArming) return false;
+      if (state.ambushArming || state.emmaBloomArming || state.switcharooActive || state.hexArming || state.fortressArming) return false;
       return true;
     }
 
@@ -960,6 +976,10 @@
       }
       if (playerState[HUMAN].hexArming) {
         attemptHexPlacement(HUMAN, idx);
+        return;
+      }
+      if (playerState[HUMAN].fortressArming) {
+        attemptFortressPlacement(HUMAN, idx);
         return;
       }
       if (playerState[HUMAN].switcharooActive) {
@@ -1188,7 +1208,13 @@
       updateScoreDisplay();
       waitingForAI = false;
 
+      // Determine who goes first next round
+      let nextStartingPlayer = HUMAN; // Default for first round
+      
       if (winner) {
+        // Winner exists - loser goes first next round
+        nextStartingPlayer = winner === HUMAN ? AI : HUMAN;
+        
         if (finishedRound >= TOTAL_ROUNDS) {
           setTimeout(() => {
             showCampaignFinale();
@@ -1198,13 +1224,27 @@
 
         currentRound += 1;
         updateScoreDisplay();
+        const playerLabel = nextStartingPlayer === HUMAN ? 'Player X' : 'AI';
         scheduleNextRound({
-          statusMessage: `Round ${currentRound}: Player X goes first`,
+          statusMessage: `Round ${currentRound}: ${playerLabel} goes first`,
+          startingPlayer: nextStartingPlayer,
           delay: nextRoundDelay
         });
       } else {
+        // Draw - loser (player with fewer points) goes first
+        // If points are equal, alternate (opposite of who went first this round)
+        if (roundPoints.X < roundPoints.O) {
+          nextStartingPlayer = HUMAN;
+        } else if (roundPoints.O < roundPoints.X) {
+          nextStartingPlayer = AI;
+        } else {
+          // Points are equal - alternate from who went first this round
+          nextStartingPlayer = currentPlayer === HUMAN ? AI : HUMAN;
+        }
+        const playerLabel = nextStartingPlayer === HUMAN ? 'Player X' : 'AI';
         scheduleNextRound({
-          statusMessage: `Draw. Round ${currentRound} rematch! Player X goes first`,
+          statusMessage: `Draw. Round ${currentRound} rematch! ${playerLabel} goes first`,
+          startingPlayer: nextStartingPlayer,
           delay: nextRoundDelay
         });
       }
@@ -1358,6 +1398,7 @@
       clearAmbushEffects();
       clearChainEffects();
       ghostTiles.clear();
+      fortressTiles.clear();
 
       aiCataclysmPending = false;
       if (resetCampaign || options.resetCampaign) {
@@ -1378,16 +1419,19 @@
       ghostTiles.clear();
       initBoard();
 
-      currentPlayer = HUMAN;
+      // Set starting player (default to HUMAN for first round, or use provided startingPlayer)
+      const startingPlayer = (effectiveRound === 1) ? HUMAN : (options.startingPlayer || HUMAN);
+      currentPlayer = startingPlayer;
       gameOver = false;
       roundResolved = false;
       waitingForAI = false;
-      const message = options.statusMessage || `Round ${effectiveRound}: Player X goes first`;
+      const playerLabel = startingPlayer === HUMAN ? 'Player X' : 'AI';
+      const message = options.statusMessage || `Round ${effectiveRound}: ${playerLabel} goes first`;
       statusElement.textContent = message;
       [...boardElement.children].forEach(btn => {
         btn.textContent = '';
         btn.disabled = false;
-        btn.classList.remove('win', 'blocked', 'mystery', 'ambush', 'ghost', 'ghost-turn-0', 'ghost-turn-1', 'ghost-turn-2', 'ghost-turn-3', 'hidden-ghost', 'selected', 'pulsate');
+        btn.classList.remove('win', 'blocked', 'mystery', 'ambush', 'ghost', 'ghost-turn-0', 'ghost-turn-1', 'ghost-turn-2', 'ghost-turn-3', 'hidden-ghost', 'selected', 'pulsate', 'fortress');
         removeTileFadeOverlay(btn);
         clearTileMark(btn);
         const ghostMark = btn.querySelector('.ghost-mark');
@@ -1414,15 +1458,15 @@
       showTileWeightPreview();
       // Delay card text rendering until tile preview is fully gone (1.75 seconds)
       setTimeout(() => {
-        startCardDraftFor(HUMAN);
+        startCardDraftFor(startingPlayer);
       }, 1750);
     }
 
     function scheduleNextRound(options = {}) {
-      const { delay = 2000, statusMessage } = options;
+      const { delay = 2000, statusMessage, startingPlayer = HUMAN } = options;
       if (nextRoundTimeout) clearTimeout(nextRoundTimeout);
       nextRoundTimeout = setTimeout(() => {
-        resetRound({ statusMessage });
+        resetRound({ statusMessage, startingPlayer });
         nextRoundTimeout = null;
       }, delay);
     }
@@ -1847,6 +1891,7 @@
       updateDestroyTargetPulsation();
       state.switcharooActive = false;
       state.hexArming = false;
+      state.fortressArming = false;
 
       const turnConsumedByCard = false;
       const effectOutcome = applyCardEffect(player, card);
@@ -1871,6 +1916,13 @@
               }
             }, aiMoveDelay);
           }
+        }
+        return;
+      }
+
+      if (card.effect === 'fortress') {
+        if (player === HUMAN) {
+          state.ready = false;
         }
         return;
       }
@@ -1940,7 +1992,7 @@
         }
       }
       const roll = Math.random();
-      const preferredOrder = ['extraTurn', 'destroyConnected', 'emmaBloom', 'ghosts', 'destroyTile', 'cleanseTile', 'claimCenter', 'claimCorner', 'claimEdge', 'claimRandom', 'doubleVoid', 'voidTile'];
+      const preferredOrder = ['extraTurn', 'destroyConnected', 'emmaBloom', 'fortress', 'ghosts', 'destroyTile', 'cleanseTile', 'claimCenter', 'claimCorner', 'claimEdge', 'claimRandom', 'doubleVoid', 'voidTile'];
       const scored = choices.map((card, idx) => {
         const priority = preferredOrder.indexOf(card.effect);
         const score = priority === -1 ? preferredOrder.length + idx : priority;
@@ -1985,6 +2037,8 @@
           return CARD_FLOW.PENDING;
         case 'ghosts':
           return triggerGhosts(player);
+        case 'fortress':
+          return triggerFortress(player);
         default:
           return CARD_FLOW.CONTINUE;
       }
@@ -2086,6 +2140,10 @@
     }
 
     function convertTileToPlayer(idx, player) {
+      // Cannot convert fortress tiles
+      if (isFortressTile(idx)) {
+        return false;
+      }
       board[idx] = player;
       if (mysteryTileIndices.includes(idx)) {
         mysteryTileIndices = mysteryTileIndices.filter(i => i !== idx);
@@ -2288,6 +2346,10 @@
     }
 
     function flipTileSymbol(idx) {
+      // Cannot flip fortress tiles
+      if (isFortressTile(idx)) {
+        return false;
+      }
       const current = board[idx];
       if (current !== HUMAN && current !== AI) return false;
       const next = current === HUMAN ? AI : HUMAN;
@@ -2366,8 +2428,10 @@
         tile.classList.remove('pulsate');
         
         if (cell === AI && humanShouldPulsate) {
-          // Human has Erasure - pulsate O tiles only
-          tile.classList.add('pulsate');
+          // Human has Erasure - pulsate O tiles only, but exclude fortress tiles (they can't be destroyed)
+          if (!isFortressTile(idx)) {
+            tile.classList.add('pulsate');
+          }
         }
       });
     }
@@ -2380,17 +2444,35 @@
       state.destroyUsed = true;
       updateDestroyTargetPulsation();
       const targetSymbol = board[idx];
+      // Check if target is a fortress tile - cannot be destroyed
+      if (isFortressTile(idx)) {
+        statusElement.textContent = 'That tile is protected by a Fortress and cannot be destroyed!';
+        state.destroyUsed = false; // Refund the destroy ability
+        updateDestroyTargetPulsation();
+        return false;
+      }
+      
       const targets = state.destroyMode === 'chain'
         ? getConnectedCluster(idx, targetSymbol)
         : [idx];
       
+      // Filter out fortress tiles from chain reactions
+      const validTargets = targets.filter(targetIdx => !isFortressTile(targetIdx));
+      
+      if (validTargets.length === 0) {
+        statusElement.textContent = 'All target tiles are protected by Fortresses!';
+        state.destroyUsed = false; // Refund the destroy ability
+        updateDestroyTargetPulsation();
+        return false;
+      }
+      
       const isChainReaction = state.destroyMode === 'chain';
       
       if (isChainReaction) {
-        animateCascadingCataclysm(idx, targets, targetSymbol);
+        animateCascadingCataclysm(idx, validTargets, targetSymbol);
         showChainReactionEffects();
       } else {
-        targets.forEach(targetIdx => {
+        validTargets.forEach(targetIdx => {
           board[targetIdx] = '';
           const btn = boardElement.children[targetIdx];
           if (btn) {
@@ -2585,10 +2667,12 @@
         const current = stack.pop();
         if (visited.has(current)) continue;
         if (board[current] !== symbol) continue;
+        // Exclude fortress tiles from cluster (they can't be destroyed)
+        if (isFortressTile(current)) continue;
         visited.add(current);
         cluster.push(current);
         getNeighborIndices(current).forEach(neighbor => {
-          if (!visited.has(neighbor) && board[neighbor] === symbol) {
+          if (!visited.has(neighbor) && board[neighbor] === symbol && !isFortressTile(neighbor)) {
             stack.push(neighbor);
           }
         });
@@ -3445,6 +3529,93 @@
       }
       statusElement.textContent = `${playerLabel(player)} gambled on the mystery tile... It reveals ${symbol}!`;
       return true;
+    }
+
+    function triggerFortress(player) {
+      const state = playerState[player];
+      if (!state) return CARD_FLOW.CONTINUE;
+      const availableTiles = getEmptyIndices(board, { includeMystery: false });
+      if (!availableTiles.length) {
+        statusElement.textContent = 'No empty tiles available for Fortress.';
+        return CARD_FLOW.CONTINUE;
+      }
+      if (player === HUMAN) {
+        state.fortressArming = true;
+        state.ready = false;
+        statusElement.textContent = 'Select an empty tile to place your Fortress.';
+        return CARD_FLOW.PENDING;
+      }
+      const target = chooseFortressTileFor(player, availableTiles);
+      if (target === -1) {
+        statusElement.textContent = 'AI tried to place a Fortress but found no space.';
+        return CARD_FLOW.CONTINUE;
+      }
+      placeFortress(player, target);
+      statusElement.textContent = 'AI has placed a Fortress!';
+      evaluateBoardStateAfterAuto();
+      if (!gameOver) {
+        state.ready = true;
+        statusElement.textContent = 'AI is thinking...';
+        const aiMoveDelay = Math.round(randomDelay(1250, 1750));
+        setTimeout(() => {
+          if (!gameOver && currentPlayer === AI) {
+            aiMove();
+          }
+        }, aiMoveDelay);
+      }
+      return CARD_FLOW.CONTINUE;
+    }
+
+    function attemptFortressPlacement(player, idx) {
+      const state = playerState[player];
+      if (!state?.fortressArming) return;
+      if (board[idx] || board[idx] === 'BLOCK' || isMysteryTile(idx) || isGhostTile(idx)) {
+        statusElement.textContent = 'Choose an empty tile for your Fortress.';
+        return;
+      }
+      state.fortressArming = false;
+      placeFortress(player, idx);
+      if (!gameOver) {
+        state.ready = true;
+        statusElement.textContent = 'Fortress placed! Place your mark.';
+      }
+    }
+
+    function placeFortress(player, idx) {
+      if (board[idx] || isMysteryTile(idx) || isGhostTile(idx)) return false;
+      // Clear ghost if present
+      if (isGhostTile(idx)) {
+        clearGhostAt(idx);
+      }
+      // Place the player's mark
+      makeMove(idx, player);
+      // Mark as fortress
+      fortressTiles.add(idx);
+      const tile = boardElement.children[idx];
+      if (tile) {
+        tile.classList.add('fortress');
+      }
+      evaluateBoardStateAfterAuto();
+      return true;
+    }
+
+    function chooseFortressTileFor(player, availableTiles) {
+      if (!availableTiles.length) return -1;
+      // Prefer strategic positions (center, corners, edges)
+      const centers = getCenterIndices();
+      const corners = getCornerIndices();
+      const edges = getEdgeIndices();
+      
+      const strategic = availableTiles.filter(idx => 
+        centers.includes(idx) || corners.includes(idx) || edges.includes(idx)
+      );
+      
+      const pool = strategic.length ? strategic : availableTiles;
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    function isFortressTile(idx) {
+      return fortressTiles.has(idx);
     }
 
     function attemptAIMysteryTile() {
