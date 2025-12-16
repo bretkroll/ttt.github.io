@@ -730,6 +730,53 @@
         opacity: 0;
       }
     }
+
+    .toenado-circle {
+      position: fixed;
+      width: 60px;
+      height: 60px;
+      border: 3px solid #ffffff;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 15;
+      box-shadow: 0 0 15px rgba(255, 255, 255, 0.8), inset 0 0 10px rgba(255, 255, 255, 0.3);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .toenado-circle.active {
+      opacity: 1;
+    }
+
+    .toenado-circle.disintegrating {
+      opacity: 0;
+      transform: scale(1.5);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+
+    .tile-pulled {
+      opacity: 0.5;
+      transform: scale(0.8);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .tile-attached {
+      position: fixed;
+      pointer-events: none;
+      z-index: 16;
+      font-size: 36px;
+      font-weight: bold;
+      transition: none;
+      transform-origin: center center;
+    }
+
+    .tile-attached.x-mark {
+      color: #4fd4ff;
+    }
+
+    .tile-attached.o-mark {
+      color: #ff5c7d;
+    }
   </style>
 </head>
 <body>
@@ -815,7 +862,8 @@
       { id: 'ambush-snare', name: 'Ambush', description: 'Mark an empty tile. The next foe there loses all connected letters.', effect: 'ambushTrap' },
       { id: 'ghosts', name: 'Ghosts', description: 'Spawn 3 ghosts on random tiles. They materialize after 3 turns.', effect: 'ghosts' },
       { id: 'fortress', name: 'Fortress', description: 'Place a letter; tile becomes permanent this round.', effect: 'fortress' },
-      { id: 'omfg', name: 'OMFG', description: 'Select a Hex tile to completely invert the board. Fortresses are immune.', effect: 'omfg' }
+      { id: 'omfg', name: 'OMFG', description: 'Select a Hex tile to completely invert the board. Fortresses are immune.', effect: 'omfg' },
+      { id: 'toenado', name: 'Toenado', description: 'Select one of your tiles. A tornado sweeps across the board, pulling enemy tiles with it.', effect: 'toenado' }
     ];
     const winOverlay = document.getElementById('winOverlay');
     const winMessage = document.getElementById('winMessage');
@@ -886,7 +934,8 @@
         switcharooActive: false,
         hexArming: false,
         fortressArming: false,
-        omfgArming: false
+        omfgArming: false,
+        toenadoArming: false
       };
     }
 
@@ -895,7 +944,7 @@
       if (!state) return false;
       if (gameOver || waitingForAI || currentPlayer !== HUMAN) return false;
       if (!state.ready || state.awaitingChoice) return false;
-      if (state.ambushArming || state.emmaBloomArming || state.switcharooActive || state.hexArming || state.fortressArming || state.omfgArming) return false;
+      if (state.ambushArming || state.emmaBloomArming || state.switcharooActive || state.hexArming || state.fortressArming || state.omfgArming || state.toenadoArming) return false;
       return true;
     }
 
@@ -1031,6 +1080,10 @@
       }
       if (playerState[HUMAN].omfgArming) {
         attemptOMFGSelection(HUMAN, idx);
+        return;
+      }
+      if (playerState[HUMAN].toenadoArming) {
+        attemptToenadoSelection(HUMAN, idx);
         return;
       }
       if (playerState[HUMAN].switcharooActive) {
@@ -1466,6 +1519,7 @@
       weightPreviewActive = false;
       clearAmbushEffects();
       clearChainEffects();
+      cleanupToenado();
       ghostTiles.clear();
       fortressTiles.clear();
 
@@ -1859,6 +1913,7 @@
         disableHexTilesAfterOMFG();
       }
       state.omfgArming = false;
+      state.toenadoArming = false;
       if (player === HUMAN) {
         renderCardChoices(player);
         waitingForAI = false;
@@ -2043,6 +2098,7 @@
         disableHexTilesAfterOMFG();
       }
       state.omfgArming = false;
+      state.toenadoArming = false;
 
       const turnConsumedByCard = false;
       const effectOutcome = applyCardEffect(player, card);
@@ -2227,6 +2283,8 @@
           return triggerFortress(player);
         case 'omfg':
           return triggerOMFG(player);
+        case 'toenado':
+          return triggerToenado(player);
         default:
           return CARD_FLOW.CONTINUE;
       }
@@ -4223,6 +4281,457 @@
         statusElement.textContent = `${playerLabel(player)} activated OMFG! The board has been inverted!`;
         evaluateBoardStateAfterAuto();
       }, totalWait);
+    }
+
+    let toenadoCircle = null;
+    let toenadoAnimationId = null;
+    let pulledOTiles = new Set();
+    let toenadoCleanupTimeout = null;
+    let attachedTiles = new Map(); // Map<idx, {element: HTMLElement, offsetX: number, offsetY: number}>
+
+    function triggerToenado(player) {
+      const state = playerState[player];
+      if (!state) return CARD_FLOW.CONTINUE;
+      const ownedTiles = getOwnedTileIndices(player);
+      if (!ownedTiles.length) {
+        statusElement.textContent = `${playerLabel(player)} has no tiles to launch Toenado from.`;
+        return CARD_FLOW.CONTINUE;
+      }
+      if (player === HUMAN) {
+        state.toenadoArming = true;
+        state.ready = false;
+        statusElement.textContent = 'Select one of your X tiles to launch Toenado.';
+        return CARD_FLOW.PENDING;
+      }
+      // AI automatically selects a random owned O tile
+      const target = ownedTiles[Math.floor(Math.random() * ownedTiles.length)];
+      state.ready = false;
+      executeToenado(player, target);
+      // Return PENDING so handleCardSelection doesn't immediately schedule AI move
+      return CARD_FLOW.PENDING;
+    }
+
+    function attemptToenadoSelection(player, idx) {
+      const state = playerState[player];
+      if (!state?.toenadoArming) return;
+      if (board[idx] !== player) {
+        const tileType = player === HUMAN ? 'X' : 'O';
+        statusElement.textContent = `Select one of your ${tileType} tiles to launch Toenado.`;
+        return;
+      }
+      state.toenadoArming = false;
+      executeToenado(player, idx);
+      if (!gameOver) {
+        state.ready = false;
+      }
+    }
+
+    function executeToenado(player, startIdx) {
+      // Clean up any existing toenado
+      cleanupToenado();
+      
+      const startTile = boardElement.children[startIdx];
+      if (!startTile) return;
+      
+      // Get starting position
+      const startRect = startTile.getBoundingClientRect();
+      const startX = startRect.left + startRect.width / 2;
+      const startY = startRect.top + startRect.height / 2;
+      
+      // Create the white circle
+      toenadoCircle = document.createElement('div');
+      toenadoCircle.className = 'toenado-circle';
+      toenadoCircle.style.left = `${startX - 30}px`;
+      toenadoCircle.style.top = `${startY - 30}px`;
+      document.body.appendChild(toenadoCircle);
+      
+      // Show the circle
+      requestAnimationFrame(() => {
+        toenadoCircle.classList.add('active');
+      });
+      
+      // Generate random path
+      const boardRect = boardElement.getBoundingClientRect();
+      const path = generateRandomPath(startX, startY, boardRect, 5000);
+      
+      // Track pulled opponent tiles
+      pulledOTiles.clear();
+      
+      // Determine target symbol (opponent's tiles)
+      const targetSymbol = player === HUMAN ? AI : HUMAN;
+      
+      // Animate the circle along the path
+      const startTime = Date.now();
+      const duration = 5000; // 5 seconds
+      
+      function animate() {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        if (progress >= 1) {
+          // Animation complete - disintegrate
+          disintegrateToenado(player, targetSymbol);
+          return;
+        }
+        
+        // Use very gentle easing for smooth, slow movement
+        // This creates a slow start and slow end with steady middle
+        const easedProgress = progress * progress * (3 - 2 * progress); // Smoothstep function
+        
+        // Get current position from path with smooth interpolation
+        const exactIndex = easedProgress * (path.length - 1);
+        const pathIndex = Math.floor(exactIndex);
+        const nextIndex = Math.min(pathIndex + 1, path.length - 1);
+        const fraction = exactIndex - pathIndex;
+        
+        const currentPoint = path[pathIndex];
+        const nextPoint = path[nextIndex];
+        
+        if (currentPoint && nextPoint) {
+          // Interpolate between path points for ultra-smooth movement
+          const x = currentPoint.x + (nextPoint.x - currentPoint.x) * fraction;
+          const y = currentPoint.y + (nextPoint.y - currentPoint.y) * fraction;
+          
+          toenadoCircle.style.left = `${x - 30}px`;
+          toenadoCircle.style.top = `${y - 30}px`;
+          
+          // Update attached tiles to orbit around the circle
+          // Spin speed increases as progress approaches 1 (faster near the end)
+          // Base speed increases exponentially: 1 rotation at start, 8+ rotations at end
+          const baseSpinSpeed = 1; // rotations per 5 seconds at start
+          const endSpinSpeed = 8; // rotations per 5 seconds at end
+          // Use exponential increase for dramatic speedup
+          const spinMultiplier = baseSpinSpeed + (endSpinSpeed - baseSpinSpeed) * (progress * progress * progress);
+          
+          attachedTiles.forEach((attached, idx) => {
+            // Calculate total rotation for this tile (includes its random offset)
+            const totalRotation = (spinMultiplier * progress * Math.PI * 2) + attached.rotationOffset;
+            
+            // Calculate orbital position
+            const angle = attached.initialAngle + totalRotation;
+            const attachedX = x + Math.cos(angle) * attached.orbitalRadius;
+            const attachedY = y + Math.sin(angle) * attached.orbitalRadius;
+            
+            // Position the attached tile
+            attached.element.style.left = `${attachedX - attached.halfSize}px`;
+            attached.element.style.top = `${attachedY - attached.halfSize}px`;
+            
+            // Add rotation to the tile itself for spinning effect
+            const tileRotation = totalRotation * 180 / Math.PI; // Convert to degrees
+            attached.element.style.transform = `rotate(${tileRotation}deg)`;
+          });
+          
+          // Check for collisions with opponent's tiles
+          checkToenadoCollisions(x, y, targetSymbol);
+        }
+        
+        toenadoAnimationId = requestAnimationFrame(animate);
+      }
+      
+      animate();
+      
+      statusElement.textContent = `${playerLabel(player)} launched Toenado! It sweeps across the board...`;
+    }
+
+    function generateRandomPath(startX, startY, boardRect, duration) {
+      const path = [];
+      const numPoints = 200; // More points for smoother path
+      const boardWidth = boardRect.width;
+      const boardHeight = boardRect.height;
+      const boardLeft = boardRect.left;
+      const boardTop = boardRect.top;
+      
+      // Generate fewer waypoints for smoother curves
+      const numWaypoints = 5;
+      const waypoints = [];
+      
+      // First waypoint is the start position
+      waypoints.push({ x: startX, y: startY });
+      
+      // Generate intermediate waypoints
+      for (let i = 1; i < numWaypoints - 1; i++) {
+        waypoints.push({
+          x: boardLeft + Math.random() * boardWidth,
+          y: boardTop + Math.random() * boardHeight
+        });
+      }
+      
+      // Last waypoint is near the end of the board
+      waypoints.push({
+        x: boardLeft + Math.random() * boardWidth,
+        y: boardTop + Math.random() * boardHeight
+      });
+      
+      // Create smooth path using cubic interpolation (Catmull-Rom spline)
+      for (let i = 0; i < numPoints; i++) {
+        const t = i / (numPoints - 1);
+        const segmentIndex = Math.floor(t * (waypoints.length - 1));
+        const localT = (t * (waypoints.length - 1)) % 1;
+        
+        // Clamp segment index
+        const p0Index = Math.max(0, segmentIndex - 1);
+        const p1Index = segmentIndex;
+        const p2Index = Math.min(waypoints.length - 1, segmentIndex + 1);
+        const p3Index = Math.min(waypoints.length - 1, segmentIndex + 2);
+        
+        const p0 = waypoints[p0Index];
+        const p1 = waypoints[p1Index];
+        const p2 = waypoints[p2Index];
+        const p3 = waypoints[p3Index];
+        
+        // Cubic interpolation for smooth curves
+        const t2 = localT * localT;
+        const t3 = t2 * localT;
+        
+        const x = 0.5 * (
+          (2 * p1.x) +
+          (-p0.x + p2.x) * localT +
+          (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+          (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3
+        );
+        
+        const y = 0.5 * (
+          (2 * p1.y) +
+          (-p0.y + p2.y) * localT +
+          (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3
+        );
+        
+        // Clamp to board bounds
+        path.push({
+          x: Math.max(boardLeft, Math.min(boardLeft + boardWidth, x)),
+          y: Math.max(boardTop, Math.min(boardTop + boardHeight, y))
+        });
+      }
+      
+      return path;
+    }
+
+    function checkToenadoCollisions(circleX, circleY, targetSymbol) {
+      // Check each tile to see if the circle passes over the tile's center
+      const circleRadius = 30; // Half of 60px circle
+      
+      board.forEach((cell, idx) => {
+        if (cell !== targetSymbol) return; // Only check target opponent's tiles
+        if (pulledOTiles.has(idx)) return; // Already pulled
+        if (isFortressTile(idx)) return; // Can't pull fortresses
+        if (isGhostTile(idx)) return; // Can't pull ghosts
+        
+        const tile = boardElement.children[idx];
+        if (!tile) return;
+        
+        const tileRect = tile.getBoundingClientRect();
+        const tileCenterX = tileRect.left + tileRect.width / 2;
+        const tileCenterY = tileRect.top + tileRect.height / 2;
+        
+        // Check if circle overlaps tile center (distance from circle center to tile center)
+        const dx = circleX - tileCenterX;
+        const dy = circleY - tileCenterY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance <= circleRadius) {
+          // Pull this opponent tile
+          pullOTile(idx);
+        }
+      });
+    }
+
+    function pullOTile(idx) {
+      if (pulledOTiles.has(idx)) return;
+      
+      pulledOTiles.add(idx);
+      const tile = boardElement.children[idx];
+      if (!tile) return;
+      
+      // Store the cell value before clearing
+      const cell = board[idx];
+      
+      // Get tile position and symbol before clearing
+      const tileRect = tile.getBoundingClientRect();
+      const tileCenterX = tileRect.left + tileRect.width / 2;
+      const tileCenterY = tileRect.top + tileRect.height / 2;
+      
+      // Get current circle position
+      const circleRect = toenadoCircle.getBoundingClientRect();
+      const circleCenterX = circleRect.left + circleRect.width / 2;
+      const circleCenterY = circleRect.top + circleRect.height / 2;
+      
+      // Calculate initial angle from circle center to tile
+      const dx = tileCenterX - circleCenterX;
+      const dy = tileCenterY - circleCenterY;
+      const initialAngle = Math.atan2(dy, dx);
+      // Use a consistent orbital radius (slightly larger than circle)
+      const orbitalRadius = 50;
+      
+      // Clear the original tile immediately
+      board[idx] = '';
+      tile.classList.remove('tile-pulled', 'x-mark', 'o-mark', 'win', 'blocked');
+      tile.textContent = '';
+      tile.disabled = false;
+      clearTileMark(tile);
+      removeTileFadeOverlay(tile);
+      clearAmbushAt(idx);
+      
+      // Create attached tile element
+      const attachedElement = document.createElement('div');
+      attachedElement.className = 'tile-attached';
+      
+      if (cell === HUMAN) {
+        attachedElement.classList.add('x-mark');
+        attachedElement.textContent = 'X';
+      } else if (cell === AI) {
+        attachedElement.classList.add('o-mark');
+        attachedElement.textContent = 'O';
+      }
+      
+      // Use the tile's font size
+      const tileFontSize = window.getComputedStyle(tile).fontSize || '36px';
+      attachedElement.style.fontSize = tileFontSize;
+      
+      // Calculate size for centering
+      const fontSizeNum = parseFloat(tileFontSize);
+      const halfSize = fontSizeNum / 2;
+      
+      // Position it at the tile's location initially
+      attachedElement.style.left = `${tileCenterX - halfSize}px`;
+      attachedElement.style.top = `${tileCenterY - halfSize}px`;
+      document.body.appendChild(attachedElement);
+      
+      // Store the attached element with orbital parameters
+      attachedTiles.set(idx, {
+        element: attachedElement,
+        initialAngle: initialAngle,
+        orbitalRadius: orbitalRadius,
+        halfSize: halfSize,
+        rotationOffset: Math.random() * Math.PI * 2 // Random starting rotation for variety
+      });
+    }
+
+    function disintegrateToenado(player, targetSymbol) {
+      if (!toenadoCircle) return;
+      
+      // Disintegrate the circle
+      toenadoCircle.classList.add('disintegrating');
+      
+      // Get circle position for calculating fly-off directions
+      const circleRect = toenadoCircle.getBoundingClientRect();
+      const circleCenterX = circleRect.left + circleRect.width / 2;
+      const circleCenterY = circleRect.top + circleRect.height / 2;
+      
+      // Get viewport dimensions for calculating fly-off distance
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const maxDistance = Math.max(viewportWidth, viewportHeight) * 1.5; // Fly far off screen
+      
+      // Make attached tiles fly off in random directions
+      attachedTiles.forEach((attached, idx) => {
+        // Get current position from the element
+        const elementRect = attached.element.getBoundingClientRect();
+        const currentX = elementRect.left + elementRect.width / 2;
+        const currentY = elementRect.top + elementRect.height / 2;
+        
+        // Random angle for fly-off direction (0 to 2π)
+        const flyAngle = Math.random() * Math.PI * 2;
+        
+        // Calculate destination (far off screen)
+        const flyDistance = maxDistance;
+        const flyX = currentX + Math.cos(flyAngle) * flyDistance;
+        const flyY = currentY + Math.sin(flyAngle) * flyDistance;
+        
+        // Get current rotation from transform
+        const currentTransform = attached.element.style.transform || 'rotate(0deg)';
+        const currentRotationMatch = currentTransform.match(/rotate\(([^)]+)\)/);
+        const currentRotation = currentRotationMatch ? parseFloat(currentRotationMatch[1]) : 0;
+        
+        // Calculate rotation for spinning effect as it flies (continue from current rotation)
+        const spinRotations = 3 + Math.random() * 2; // 3-5 full rotations
+        const finalRotation = currentRotation + (spinRotations * 360);
+        
+        // Animate flying off (slowed down by 33%)
+        const flyDuration = 1064; // 0.8s * 1.33 = ~1.064s
+        attached.element.style.transition = `left ${flyDuration}ms ease-out, top ${flyDuration}ms ease-out, opacity ${flyDuration}ms ease-out, transform ${flyDuration}ms ease-out`;
+        attached.element.style.left = `${flyX - attached.halfSize}px`;
+        attached.element.style.top = `${flyY - attached.halfSize}px`;
+        attached.element.style.opacity = '0';
+        attached.element.style.transform = `rotate(${finalRotation}deg) scale(0.5)`;
+      });
+      
+      // Remove pulled opponent tiles and clean up after animation
+      setTimeout(() => {
+        const pulledCount = pulledOTiles.size;
+        const targetLabel = targetSymbol === HUMAN ? 'X' : 'O';
+        
+        // Remove attached tile elements
+        attachedTiles.forEach((attached) => {
+          attached.element.remove();
+        });
+        attachedTiles.clear();
+        
+        pulledOTiles.forEach(idx => {
+          // Clear the tile (already cleared when pulled, but ensure it's empty)
+          board[idx] = '';
+          const tile = boardElement.children[idx];
+          if (tile) {
+            tile.classList.remove('tile-pulled', 'x-mark', 'o-mark', 'win', 'blocked');
+            tile.textContent = '';
+            tile.disabled = false;
+            clearTileMark(tile);
+            removeTileFadeOverlay(tile);
+            clearAmbushAt(idx);
+          }
+        });
+        
+        pulledOTiles.clear();
+        
+        // Clean up the circle
+        cleanupToenado();
+        
+        // Check game state
+        evaluateBoardStateAfterAuto();
+        
+        // Update status
+        if (pulledCount > 0) {
+          statusElement.textContent = `Toenado disintegrated, removing ${pulledCount} ${targetLabel} tile${pulledCount !== 1 ? 's' : ''}!`;
+        } else {
+          statusElement.textContent = 'Toenado disintegrated!';
+        }
+        
+        // Continue turn after a brief delay
+        setTimeout(() => {
+          if (!gameOver) {
+            const state = playerState[currentPlayer];
+            if (state) {
+              state.ready = true;
+              if (currentPlayer === HUMAN) {
+                statusElement.textContent = 'Toenado complete! Place your mark.';
+              } else {
+                scheduleAIMove();
+              }
+            }
+          }
+        }, 200);
+      }, 1064); // Wait for fly-off animation to complete (slowed by 33%)
+    }
+
+    function cleanupToenado() {
+      if (toenadoAnimationId !== null) {
+        cancelAnimationFrame(toenadoAnimationId);
+        toenadoAnimationId = null;
+      }
+      if (toenadoCleanupTimeout) {
+        clearTimeout(toenadoCleanupTimeout);
+        toenadoCleanupTimeout = null;
+      }
+      if (toenadoCircle) {
+        toenadoCircle.remove();
+        toenadoCircle = null;
+      }
+      // Remove all attached tiles
+      attachedTiles.forEach((attached) => {
+        attached.element.remove();
+      });
+      attachedTiles.clear();
+      pulledOTiles.clear();
     }
 
     function attemptAIMysteryTile() {
