@@ -106,6 +106,10 @@
       animation: pulsateX 1.2s ease-in-out infinite;
     }
 
+    .square.blocked.pulsate {
+      animation: pulsateHex 1.2s ease-in-out infinite;
+    }
+
     @keyframes pulsateO {
       0%, 100% {
         transform: scale(1);
@@ -125,6 +129,17 @@
       50% {
         transform: scale(1.08);
         box-shadow: 0 0 12px 4px rgba(79, 212, 255, 0.9);
+      }
+    }
+
+    @keyframes pulsateHex {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(255, 20, 147, 0.7);
+      }
+      50% {
+        transform: scale(1.08);
+        box-shadow: 0 0 12px 4px rgba(255, 20, 147, 0.9);
       }
     }
 
@@ -538,6 +553,30 @@
       opacity: 1;
     }
 
+    .omfg-flash {
+      position: fixed;
+      background: rgba(255, 20, 147, 0.6);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+      z-index: 12;
+      border-radius: 4px;
+    }
+
+    .omfg-flash.show {
+      opacity: 1;
+    }
+
+    .omfg-outline {
+      position: fixed;
+      border: 3px solid rgba(255, 20, 147, 0.9);
+      border-radius: 4px;
+      pointer-events: none;
+      z-index: 11;
+      box-shadow: 0 0 20px rgba(255, 20, 147, 0.6), inset 0 0 20px rgba(255, 20, 147, 0.3);
+      transform-origin: center center;
+    }
+
     .ambush-alert {
       position: fixed;
       inset: 0;
@@ -706,6 +745,10 @@
     <div class="card-panel" data-panel-owner="human">
       <div class="card-grid"></div>
     </div>
+    <div class="card-panel" data-panel-owner="ai" style="margin-top: 8px;">
+      <h2 style="margin: 0 0 8px; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: #9da6c0;">AI Cards (Debug)</h2>
+      <div class="card-grid"></div>
+    </div>
   </div>
   <div id="confetti"></div>
   <div id="winOverlay" class="win-overlay">
@@ -734,8 +777,8 @@
         grid: document.querySelector('[data-panel-owner="human"] .card-grid')
       },
       O: {
-        panel: null,
-        grid: null
+        panel: document.querySelector('[data-panel-owner="ai"]'),
+        grid: document.querySelector('[data-panel-owner="ai"] .card-grid')
       }
     };
 
@@ -771,7 +814,8 @@
       { id: 'cataclysm-weave', name: 'Cataclysm', description: 'Detonate a tile to erase every connected enemy letter.', effect: 'destroyConnected' },
       { id: 'ambush-snare', name: 'Ambush', description: 'Mark an empty tile. The next foe there loses all connected letters.', effect: 'ambushTrap' },
       { id: 'ghosts', name: 'Ghosts', description: 'Spawn 3 ghosts on random tiles. They materialize after 3 turns.', effect: 'ghosts' },
-      { id: 'fortress', name: 'Fortress', description: 'Place a letter; tile becomes permanent this round.', effect: 'fortress' }
+      { id: 'fortress', name: 'Fortress', description: 'Place a letter; tile becomes permanent this round.', effect: 'fortress' },
+      { id: 'omfg', name: 'OMFG', description: 'Select a Hex tile to completely invert the board. Fortresses are immune.', effect: 'omfg' }
     ];
     const winOverlay = document.getElementById('winOverlay');
     const winMessage = document.getElementById('winMessage');
@@ -817,6 +861,8 @@
     let chainShakeTimeout = null;
     let aiCataclysmPending = false;
     let fortressTiles = new Set();
+    let aiCardSelectionTimeout = null;
+    let aiMoveTimeout = null;
 
     function randomDelay(min, max) {
       return min + Math.random() * (max - min);
@@ -839,7 +885,8 @@
         emmaBloomArming: false,
         switcharooActive: false,
         hexArming: false,
-        fortressArming: false
+        fortressArming: false,
+        omfgArming: false
       };
     }
 
@@ -848,7 +895,7 @@
       if (!state) return false;
       if (gameOver || waitingForAI || currentPlayer !== HUMAN) return false;
       if (!state.ready || state.awaitingChoice) return false;
-      if (state.ambushArming || state.emmaBloomArming || state.switcharooActive || state.hexArming || state.fortressArming) return false;
+      if (state.ambushArming || state.emmaBloomArming || state.switcharooActive || state.hexArming || state.fortressArming || state.omfgArming) return false;
       return true;
     }
 
@@ -980,6 +1027,10 @@
       }
       if (playerState[HUMAN].fortressArming) {
         attemptFortressPlacement(HUMAN, idx);
+        return;
+      }
+      if (playerState[HUMAN].omfgArming) {
+        attemptOMFGSelection(HUMAN, idx);
         return;
       }
       if (playerState[HUMAN].switcharooActive) {
@@ -1348,12 +1399,22 @@
     function checkAndTriggerAmbush(idx, player) {
       const ambushOwner = getAmbushOwner(idx);
       if (ambushOwner && ambushOwner !== player) {
-        // Opposing player placed on ambush - trigger it
-        triggerAmbush(idx, player, ambushOwner);
-        finishAmbushTurn(player);
-        return true; // Ambush was triggered
+        // Check if this ambush can be triggered by this player
+        // AI's ambush can only be triggered by HUMAN
+        // HUMAN's ambush can only be triggered by AI
+        const canTrigger = (ambushOwner === AI && player === HUMAN) || 
+                          (ambushOwner === HUMAN && player === AI);
+        if (canTrigger) {
+          // Opposing player placed on ambush - trigger it
+          triggerAmbush(idx, player, ambushOwner);
+          finishAmbushTurn(player);
+          return true; // Ambush was triggered
+        } else {
+          // This player cannot trigger this ambush - just clear it
+          clearAmbushAt(idx);
+        }
       } else if (ambushOwner === player) {
-        // Player placed on their own ambush - just clear it
+        // Player placed on their own ambush - just clear it (deactivate)
         clearAmbushAt(idx);
       }
       return false; // No ambush triggered
@@ -1389,6 +1450,14 @@
       if (aiChoiceTimeout) {
         clearTimeout(aiChoiceTimeout);
         aiChoiceTimeout = null;
+      }
+      if (aiCardSelectionTimeout) {
+        clearTimeout(aiCardSelectionTimeout);
+        aiCardSelectionTimeout = null;
+      }
+      if (aiMoveTimeout) {
+        clearTimeout(aiMoveTimeout);
+        aiMoveTimeout = null;
       }
       if (previewTimeout) {
         clearTimeout(previewTimeout);
@@ -1444,15 +1513,25 @@
 
       playerState.X = createEmptyState();
       playerState.O = createEmptyState();
-      // Create empty card boxes immediately
-      const grid = cardPanels.X?.grid;
-      if (grid) {
-        grid.innerHTML = '';
+      // Create empty card boxes immediately for both players
+      const humanGrid = cardPanels.X?.grid;
+      if (humanGrid) {
+        humanGrid.innerHTML = '';
         for (let i = 0; i < 3; i++) {
           const blankCard = document.createElement('div');
           blankCard.className = 'card disabled';
           blankCard.innerHTML = '';
-          grid.appendChild(blankCard);
+          humanGrid.appendChild(blankCard);
+        }
+      }
+      const aiGrid = cardPanels.O?.grid;
+      if (aiGrid) {
+        aiGrid.innerHTML = '';
+        for (let i = 0; i < 3; i++) {
+          const blankCard = document.createElement('div');
+          blankCard.className = 'card disabled';
+          blankCard.innerHTML = '';
+          aiGrid.appendChild(blankCard);
         }
       }
       showTileWeightPreview();
@@ -1471,7 +1550,57 @@
       }, delay);
     }
 
+    function scheduleAIMove() {
+      // Clear any existing timeout
+      if (aiMoveTimeout) {
+        clearTimeout(aiMoveTimeout);
+        aiMoveTimeout = null;
+      }
+      
+      // Ensure waitingForAI is set when AI is supposed to move
+      if (currentPlayer === AI) {
+        waitingForAI = true;
+      }
+      
+      statusElement.textContent = 'AI is thinking...';
+      const aiMoveDelay = Math.round(randomDelay(1250, 1750));
+      
+      // Set up the actual move
+      setTimeout(() => {
+        if (!gameOver && currentPlayer === AI) {
+          aiMove();
+        }
+      }, aiMoveDelay);
+      
+      // Safety timeout: if AI hasn't made a move after 3 seconds, force end turn
+      aiMoveTimeout = setTimeout(() => {
+        // Check if AI is still the current player - if so, it's stuck
+        if (!gameOver && currentPlayer === AI) {
+          const aiState = playerState[AI];
+          // AI is stuck, force it to end its turn
+          waitingForAI = false;
+          if (aiState) {
+            if (aiState.awaitingChoice) {
+              aiState.awaitingChoice = false;
+            }
+            if (aiState.ready) {
+              aiState.ready = false;
+            }
+          }
+          // Force end the turn
+          processTurnResult(AI);
+        }
+        aiMoveTimeout = null;
+      }, 3000);
+    }
+
     function aiMove() {
+      // Clear the safety timeout since we're making a move
+      if (aiMoveTimeout) {
+        clearTimeout(aiMoveTimeout);
+        aiMoveTimeout = null;
+      }
+      
       if (gameOver) {
         waitingForAI = false;
         return;
@@ -1725,6 +1854,11 @@
       state.ambushAvailable = false;
       state.ambushArming = false;
       state.hexArming = false;
+      // If OMFG was armed, disable hex tiles again
+      if (state.omfgArming) {
+        disableHexTilesAfterOMFG();
+      }
+      state.omfgArming = false;
       if (player === HUMAN) {
         renderCardChoices(player);
         waitingForAI = false;
@@ -1753,17 +1887,29 @@
             }
           });
         }
-        // Generate choices for AI but don't render them
-        generateCardChoices(player);
+        // Generate choices for AI and render them for debugging
+        renderCardChoices(player);
         waitingForAI = true;
         statusElement.textContent = 'AI chooses Card';
         cardPanels.X?.panel?.classList?.remove('selectable');
         if (aiChoiceTimeout) clearTimeout(aiChoiceTimeout);
+        if (aiCardSelectionTimeout) clearTimeout(aiCardSelectionTimeout);
         const aiDrawDelay = Math.round(randomDelay(500, 1000));
         aiChoiceTimeout = setTimeout(() => {
           applyAISelection();
           aiChoiceTimeout = null;
         }, aiDrawDelay);
+        // Safety timeout: if AI hasn't selected a card after 3 seconds, skip to manual placement
+        aiCardSelectionTimeout = setTimeout(() => {
+          const aiState = playerState[AI];
+          if (aiState && aiState.awaitingChoice && !aiState.ready && currentPlayer === AI && !gameOver) {
+            // AI is stuck, force it to skip card selection
+            aiState.awaitingChoice = false;
+            aiState.ready = true;
+            scheduleAIMove();
+          }
+          aiCardSelectionTimeout = null;
+        }, 3000);
       }
     }
 
@@ -1892,11 +2038,17 @@
       state.switcharooActive = false;
       state.hexArming = false;
       state.fortressArming = false;
+      // If OMFG was armed, disable hex tiles again
+      if (state.omfgArming) {
+        disableHexTilesAfterOMFG();
+      }
+      state.omfgArming = false;
 
       const turnConsumedByCard = false;
       const effectOutcome = applyCardEffect(player, card);
       const pendingEffect = effectOutcome === CARD_FLOW.PENDING;
       const effectConsumedTurn = effectOutcome === CARD_FLOW.CONSUME;
+      const omfgAnimating = effectOutcome === 'OMFG_ANIMATING';
 
       if (gameOver) {
         return;
@@ -1908,13 +2060,7 @@
         } else {
           if (!gameOver) {
             state.ready = true;
-            statusElement.textContent = 'AI is thinking...';
-            const aiMoveDelay = Math.round(randomDelay(1250, 1750));
-            setTimeout(() => {
-              if (!gameOver && currentPlayer === AI) {
-                aiMove();
-              }
-            }, aiMoveDelay);
+            scheduleAIMove();
           }
         }
         return;
@@ -1933,11 +2079,17 @@
       }
 
       if (player === HUMAN) {
-        if (turnConsumedByCard || effectConsumedTurn) {
+        if (turnConsumedByCard || effectConsumedTurn || omfgAnimating) {
           state.ready = false;
           statusElement.textContent = getConsumeMessage(player, card);
           if (!gameOver) {
-            processTurnResult(HUMAN);
+            // For OMFG, wait for animation to complete (1 second)
+            const delay = omfgAnimating ? 1000 : 0;
+            setTimeout(() => {
+              if (!gameOver) {
+                processTurnResult(HUMAN);
+              }
+            }, delay);
           }
           return;
         }
@@ -1948,22 +2100,26 @@
           clearTimeout(aiChoiceTimeout);
           aiChoiceTimeout = null;
         }
-        if (turnConsumedByCard || effectConsumedTurn) {
+        if (aiCardSelectionTimeout) {
+          clearTimeout(aiCardSelectionTimeout);
+          aiCardSelectionTimeout = null;
+        }
+        if (turnConsumedByCard || effectConsumedTurn || omfgAnimating) {
           state.ready = false;
           statusElement.textContent = getConsumeMessage(player, card);
           if (!gameOver) {
-            processTurnResult(AI);
+            // For OMFG, wait for animation to complete (1 second)
+            const delay = omfgAnimating ? 1000 : 0;
+            setTimeout(() => {
+              if (!gameOver) {
+                processTurnResult(AI);
+              }
+            }, delay);
           }
           return;
         }
         state.ready = true;
-        statusElement.textContent = 'AI is thinking...';
-        const aiMoveDelay = Math.round(randomDelay(1250, 1750));
-        setTimeout(() => {
-          if (!gameOver && currentPlayer === AI) {
-            aiMove();
-          }
-        }, aiMoveDelay);
+        scheduleAIMove();
       }
     }
 
@@ -1971,28 +2127,24 @@
       const state = playerState[AI];
       if (!state || state.awaitingChoice === false) {
         // Can't select a card, skip to manual placement
+        if (aiCardSelectionTimeout) {
+          clearTimeout(aiCardSelectionTimeout);
+          aiCardSelectionTimeout = null;
+        }
         state.ready = true;
-        statusElement.textContent = 'AI is thinking...';
-        const aiMoveDelay = Math.round(randomDelay(1250, 1750));
-        setTimeout(() => {
-          if (!gameOver && currentPlayer === AI) {
-            aiMove();
-          }
-        }, aiMoveDelay);
+        scheduleAIMove();
         return;
       }
       const choices = state.choices || [];
       if (!choices.length) {
         // No cards available, skip to manual placement
+        if (aiCardSelectionTimeout) {
+          clearTimeout(aiCardSelectionTimeout);
+          aiCardSelectionTimeout = null;
+        }
         state.awaitingChoice = false;
         state.ready = true;
-        statusElement.textContent = 'AI is thinking...';
-        const aiMoveDelay = Math.round(randomDelay(1250, 1750));
-        setTimeout(() => {
-          if (!gameOver && currentPlayer === AI) {
-            aiMove();
-          }
-        }, aiMoveDelay);
+        scheduleAIMove();
         return;
       }
       const selectedIndex = chooseBestAICardIndex(choices);
@@ -2009,14 +2161,25 @@
       const catIdx = choices.findIndex(card => card.effect === 'destroyConnected');
       if (catIdx !== -1) {
         const bestCluster = getBestCataclysmTarget();
-        if (bestCluster.size >= 4) {
+        // Only select Cataclysm if there are X (HUMAN) tiles to target
+        // bestCluster.index !== -1 means there's at least one HUMAN tile available
+        if (bestCluster.index !== -1 && bestCluster.size >= 2 && board[bestCluster.index] === HUMAN) {
           aiCataclysmPending = true;
           return catIdx;
         }
+        // If no HUMAN tiles available, skip Cataclysm entirely
       }
       const roll = Math.random();
       const preferredOrder = ['extraTurn', 'destroyConnected', 'emmaBloom', 'fortress', 'ghosts', 'destroyTile', 'cleanseTile', 'claimCenter', 'claimCorner', 'claimEdge', 'claimRandom', 'doubleVoid', 'voidTile'];
       const scored = choices.map((card, idx) => {
+        // Skip Cataclysm if no HUMAN tiles are available (treat as lowest priority)
+        if (card.effect === 'destroyConnected') {
+          const bestCluster = getBestCataclysmTarget();
+          if (bestCluster.index === -1 || board[bestCluster.index] !== HUMAN) {
+            // No valid X tile targets, give it lowest priority so it's never selected
+            return { idx, score: 999 };
+          }
+        }
         const priority = preferredOrder.indexOf(card.effect);
         const score = priority === -1 ? preferredOrder.length + idx : priority;
         return { idx, score };
@@ -2062,6 +2225,8 @@
           return triggerGhosts(player);
         case 'fortress':
           return triggerFortress(player);
+        case 'omfg':
+          return triggerOMFG(player);
         default:
           return CARD_FLOW.CONTINUE;
       }
@@ -2530,6 +2695,58 @@
         aiCataclysmPending = false;
         return false;
       }
+      
+      // Check if there are valid targets BEFORE setting up the timeout
+      let hasValidTarget = false;
+      if (aiCataclysmPending) {
+        const bestTarget = getBestCataclysmTarget();
+        // AI can only use Cataclysm on X (HUMAN) tiles, never on O (AI) tiles
+        if (bestTarget.index !== -1 && bestTarget.size >= 2 && board[bestTarget.index] === HUMAN) {
+          hasValidTarget = true;
+        } else {
+          // No valid Cataclysm target, clear the pending flag
+          aiCataclysmPending = false;
+        }
+      } else {
+        // Check for single destroy target (Erasure/Ruin Pulse)
+        // findHumanTileToDestroy now skips Fortress tiles
+        const target = findHumanTileToDestroy();
+        if (target !== -1) {
+          hasValidTarget = true;
+        } else {
+          // No valid target found - check if all X tiles are Fortresses
+          const allXTiles = board
+            .map((cell, idx) => (cell === HUMAN ? idx : null))
+            .filter(idx => idx !== null);
+          const allAreFortresses = allXTiles.length > 0 && allXTiles.every(idx => isFortressTile(idx));
+          if (allAreFortresses) {
+            // All X tiles are Fortresses - can't destroy any, wait 3 seconds then proceed
+            const state = playerState[AI];
+            if (state) {
+              state.destroyUsed = true;
+            }
+            updateDestroyTargetPulsation();
+            statusElement.textContent = 'AI tried to use Erasure but all tiles are protected by Fortresses!';
+            setTimeout(() => {
+              if (!gameOver && currentPlayer === AI) {
+                scheduleAIMove();
+              }
+            }, 3000);
+            return true; // Indicates we're waiting (but not for destroy)
+          }
+        }
+      }
+      
+      // If no valid targets, mark destroy as used and proceed with normal move
+      if (!hasValidTarget) {
+        const state = playerState[AI];
+        if (state) {
+          state.destroyUsed = true;
+        }
+        updateDestroyTargetPulsation();
+        return false; // No destroy pending, proceed with normal move
+      }
+      
       // Update pulsation state (no pulsation for AI, only for human)
       updateDestroyTargetPulsation();
       
@@ -2541,7 +2758,8 @@
         }
         if (aiCataclysmPending) {
           const bestTarget = getBestCataclysmTarget();
-          if (bestTarget.index !== -1 && bestTarget.size >= 2) {
+          // AI can only use Cataclysm on X (HUMAN) tiles, never on O (AI) tiles
+          if (bestTarget.index !== -1 && bestTarget.size >= 2 && board[bestTarget.index] === HUMAN) {
             const cardName = playerState[AI].card?.name || 'an ability';
             aiCataclysmPending = false;
             const destroyResult = useDestroyAbility(AI, bestTarget.index, `AI unleashed ${cardName} to collapse your tiles.`);
@@ -2562,11 +2780,53 @@
         }
         const target = findHumanTileToDestroy();
         if (target === -1) {
+          // No target found (shouldn't happen since we checked earlier, but handle it anyway)
+          const state = playerState[AI];
+          if (state) {
+            state.destroyUsed = true;
+          }
           updateDestroyTargetPulsation();
+          // Proceed with normal move
+          if (!gameOver && currentPlayer === AI) {
+            scheduleAIMove();
+          }
           return;
         }
         const cardName = playerState[AI].card?.name || 'an ability';
         const destroyResult = useDestroyAbility(AI, target, `AI activated ${cardName} to obliterate your tile.`);
+        if (destroyResult === false) {
+          // Destroy failed (likely because target is a Fortress tile)
+          // Check if all X tiles are Fortresses
+          const allXTiles = board
+            .map((cell, idx) => (cell === HUMAN ? idx : null))
+            .filter(idx => idx !== null);
+          const allAreFortresses = allXTiles.length > 0 && allXTiles.every(idx => isFortressTile(idx));
+          
+          const state = playerState[AI];
+          if (state) {
+            state.destroyUsed = true;
+          }
+          updateDestroyTargetPulsation();
+          
+          if (allAreFortresses) {
+            statusElement.textContent = 'AI tried to use Erasure but all tiles are protected by Fortresses!';
+            // Wait 3 seconds then proceed with normal move
+            setTimeout(() => {
+              if (!gameOver && currentPlayer === AI) {
+                scheduleAIMove();
+              }
+            }, 3000);
+          } else {
+            // Some X tiles might not be Fortresses, try to find another target
+            // But for safety, just proceed with normal move after a short delay
+            setTimeout(() => {
+              if (!gameOver && currentPlayer === AI) {
+                scheduleAIMove();
+              }
+            }, 1500);
+          }
+          return;
+        }
         if (destroyResult !== false && !gameOver && currentPlayer === AI) {
           if (destroyResult > 0) {
             setTimeout(() => {
@@ -2586,26 +2846,31 @@
       let candidate = -1;
       let bestCount = 0;
       winningLines.forEach(line => {
-        const humanCount = line.filter(idx => board[idx] === HUMAN).length;
+        // Filter out Fortress tiles - they can't be destroyed
+        const humanTiles = line.filter(idx => board[idx] === HUMAN && !isFortressTile(idx));
+        const humanCount = humanTiles.length;
         const aiCount = line.filter(idx => board[idx] === AI).length;
         if (humanCount > 0 && aiCount === 0 && humanCount >= bestCount) {
           bestCount = humanCount;
-          const tileIdx = line.find(i => board[i] === HUMAN);
+          const tileIdx = humanTiles[0]; // Get first non-Fortress HUMAN tile
           if (tileIdx !== undefined) {
             candidate = tileIdx;
           }
         }
       });
       if (candidate !== -1) return candidate;
-      return board.findIndex(cell => cell === HUMAN);
+      // Fallback: find any non-Fortress HUMAN tile
+      return board.findIndex((cell, idx) => cell === HUMAN && !isFortressTile(idx));
     }
 
     function getBestCataclysmTarget() {
+      // AI can only use Cataclysm on X (HUMAN) tiles, never on O (AI) tiles
+      // Also skip Fortress tiles - they can't be destroyed
       const visited = new Set();
       let bestSize = 0;
       let bestIndex = -1;
       for (let idx = 0; idx < board.length; idx++) {
-        if (board[idx] === HUMAN && !visited.has(idx)) {
+        if (board[idx] === HUMAN && !isFortressTile(idx) && !visited.has(idx)) {
           const cluster = getConnectedCluster(idx, HUMAN);
           cluster.forEach(node => visited.add(node));
           if (cluster.length > bestSize) {
@@ -2886,6 +3151,18 @@
     }
 
     function resolveAmbushSpring(player, idx, owner) {
+      // Check if this ambush can be triggered by this player
+      // AI's ambush can only be triggered by HUMAN
+      // HUMAN's ambush can only be triggered by AI
+      const canTrigger = (owner === AI && player === HUMAN) || 
+                        (owner === HUMAN && player === AI);
+      if (!canTrigger) {
+        // This player cannot trigger this ambush - just clear it and place the tile
+        clearAmbushAt(idx);
+        makeMove(idx, player, true); // Skip ambush check, we're handling it
+        return;
+      }
+      
       // Check if there's a ghost on this tile that hasn't formed yet
       const ghost = ghostTiles.get(idx);
       if (ghost && ghost.turns < 3) {
@@ -2995,6 +3272,8 @@
           return `${playerLabel(player)}'s Emma Bloom reshapes the battlefield.`;
         case 'switcharoo':
           return `${playerLabel(player)}'s Switcharoo resolves. Passing turn...`;
+        case 'omfg':
+          return `OMFG! The board has been inverted! Passing turn...`;
         default:
           return `${playerLabel(player)} completes ${card.name}. Passing turn...`;
       }
@@ -3573,18 +3852,17 @@
         statusElement.textContent = 'AI tried to place a Fortress but found no space.';
         return CARD_FLOW.CONTINUE;
       }
-      placeFortress(player, target);
-      statusElement.textContent = 'AI has placed a Fortress!';
+      const result = placeFortress(player, target);
+      if (result && result.hadAmbush) {
+        const ambushOwnerLabel = result.ambushOwner === HUMAN ? 'Player X' : 'AI';
+        statusElement.textContent = `AI placed a Fortress! Your Ambush was deactivated.`;
+      } else {
+        statusElement.textContent = 'AI has placed a Fortress!';
+      }
       evaluateBoardStateAfterAuto();
       if (!gameOver) {
         state.ready = true;
-        statusElement.textContent = 'AI is thinking...';
-        const aiMoveDelay = Math.round(randomDelay(1250, 1750));
-        setTimeout(() => {
-          if (!gameOver && currentPlayer === AI) {
-            aiMove();
-          }
-        }, aiMoveDelay);
+        scheduleAIMove();
       }
       return CARD_FLOW.CONTINUE;
     }
@@ -3597,10 +3875,15 @@
         return;
       }
       state.fortressArming = false;
-      placeFortress(player, idx);
+      const result = placeFortress(player, idx);
       if (!gameOver) {
         state.ready = true;
-        statusElement.textContent = 'Fortress placed! Place your mark.';
+        if (result && result.hadAmbush) {
+          const ambushOwnerLabel = result.ambushOwner === HUMAN ? 'Player X' : 'AI';
+          statusElement.textContent = `Fortress placed! ${ambushOwnerLabel}'s Ambush deactivated. Place your mark.`;
+        } else {
+          statusElement.textContent = 'Fortress placed! Place your mark.';
+        }
       }
     }
 
@@ -3609,6 +3892,12 @@
       // Clear ghost if present
       if (isGhostTile(idx)) {
         clearGhostAt(idx);
+      }
+      // Check if there's an ambush on this tile - Fortress deactivates it
+      const hadAmbush = isAmbushMarked(idx);
+      const ambushOwner = hadAmbush ? getAmbushOwner(idx) : null;
+      if (hadAmbush) {
+        clearAmbushAt(idx);
       }
       // Place the player's mark
       makeMove(idx, player);
@@ -3619,7 +3908,7 @@
         tile.classList.add('fortress');
       }
       evaluateBoardStateAfterAuto();
-      return true;
+      return { success: true, hadAmbush, ambushOwner };
     }
 
     function chooseFortressTileFor(player, availableTiles) {
@@ -3639,6 +3928,301 @@
 
     function isFortressTile(idx) {
       return fortressTiles.has(idx);
+    }
+
+    function triggerOMFG(player) {
+      const state = playerState[player];
+      if (!state) return CARD_FLOW.CONTINUE;
+      // Get all hex tiles (BLOCK tiles)
+      const hexTiles = board
+        .map((cell, idx) => (cell === 'BLOCK' ? idx : null))
+        .filter(idx => idx !== null);
+      if (!hexTiles.length) {
+        statusElement.textContent = 'No hex tiles available to trigger OMFG.';
+        return CARD_FLOW.CONTINUE;
+      }
+      if (player === HUMAN) {
+        state.omfgArming = true;
+        state.ready = false;
+        // Enable Hex tiles so they can be clicked
+        enableHexTilesForOMFG();
+        statusElement.textContent = 'Select a Hex tile to invert the board!';
+        return CARD_FLOW.PENDING;
+      }
+      // AI automatically selects a random hex tile
+      const target = hexTiles[Math.floor(Math.random() * hexTiles.length)];
+      // Play pink flash effect on the selected tile
+      const targetTile = boardElement.children[target];
+      if (targetTile) {
+        playOMFGFlash(targetTile);
+      }
+      executeOMFG(player, target);
+      // OMFG consumes the turn - no manual placement
+      // Note: Animation delay is handled in executeOMFG, but we need to delay processTurnResult
+      state.ready = false;
+      // Return a special value to indicate we need to wait for animation
+      // We'll handle the delay in handleCardSelection
+      return 'OMFG_ANIMATING';
+    }
+
+    function playOMFGFlash(tileElement) {
+      if (!tileElement) return;
+      
+      // Get tile position and size
+      const rect = tileElement.getBoundingClientRect();
+      const tileSize = rect.width;
+      const flashSize = tileSize; // Same size as tile
+      
+      // Create flash element
+      const flash = document.createElement('div');
+      flash.className = 'omfg-flash';
+      flash.style.width = `${flashSize}px`;
+      flash.style.height = `${flashSize}px`;
+      flash.style.left = `${rect.left}px`;
+      flash.style.top = `${rect.top}px`;
+      
+      document.body.appendChild(flash);
+      
+      // Show flash
+      requestAnimationFrame(() => {
+        flash.classList.add('show');
+      });
+      
+      // Remove after animation
+      setTimeout(() => {
+        flash.classList.remove('show');
+        setTimeout(() => {
+          flash.remove();
+        }, 150);
+      }, 300);
+    }
+
+    function attemptOMFGSelection(player, idx) {
+      const state = playerState[player];
+      if (!state?.omfgArming) return;
+      if (board[idx] !== 'BLOCK') {
+        statusElement.textContent = 'Select a Hex tile to trigger OMFG.';
+        return;
+      }
+      state.omfgArming = false;
+      // Disable Hex tiles again after selection
+      disableHexTilesAfterOMFG();
+      // Play pink flash effect on the selected tile
+      const selectedTile = boardElement.children[idx];
+      if (selectedTile) {
+        playOMFGFlash(selectedTile);
+      }
+      executeOMFG(player, idx);
+      // OMFG consumes the turn - no manual placement
+      // Wait for animation to complete (1 second) before processing turn result
+      if (!gameOver) {
+        state.ready = false;
+        setTimeout(() => {
+          if (!gameOver) {
+            processTurnResult(player);
+          }
+        }, 1000);
+      }
+    }
+
+    function enableHexTilesForOMFG() {
+      // Enable all Hex tiles (BLOCK tiles) so they can be clicked for OMFG
+      // Also add pulsation effect
+      board.forEach((cell, idx) => {
+        if (cell === 'BLOCK') {
+          const tile = boardElement.children[idx];
+          if (tile) {
+            tile.disabled = false;
+            tile.classList.add('pulsate');
+          }
+        }
+      });
+    }
+
+    function disableHexTilesAfterOMFG() {
+      // Disable all Hex tiles again after OMFG selection
+      // Also remove pulsation effect
+      board.forEach((cell, idx) => {
+        if (cell === 'BLOCK') {
+          const tile = boardElement.children[idx];
+          if (tile) {
+            tile.disabled = true;
+            tile.classList.remove('pulsate');
+          }
+        }
+      });
+    }
+
+    function getManhattanDistance(idx1, idx2) {
+      const row1 = Math.floor(idx1 / boardSize);
+      const col1 = idx1 % boardSize;
+      const row2 = Math.floor(idx2 / boardSize);
+      const col2 = idx2 % boardSize;
+      return Math.abs(row1 - row2) + Math.abs(col1 - col2);
+    }
+
+    function getOMFGCascadeLayers(hexTileIdx) {
+      // Use BFS to find tiles in waves/layers based on connection distance from hex tile
+      const layers = [];
+      const visited = new Set();
+      const queue = [{ idx: hexTileIdx, layer: 0 }];
+      visited.add(hexTileIdx);
+      
+      while (queue.length > 0) {
+        const { idx, layer } = queue.shift();
+        
+        // Get neighbors of current tile
+        const neighbors = getNeighborIndices(idx);
+        
+        neighbors.forEach(neighborIdx => {
+          if (visited.has(neighborIdx)) return;
+          visited.add(neighborIdx);
+          
+          // Only include tiles that need to be inverted (X or O, not fortresses)
+          const cell = board[neighborIdx];
+          if (cell === HUMAN || cell === AI) {
+            if (!isFortressTile(neighborIdx)) {
+              // Add to appropriate layer
+              if (!layers[layer + 1]) {
+                layers[layer + 1] = [];
+              }
+              layers[layer + 1].push({ idx: neighborIdx, cell });
+            }
+          }
+          
+          // Continue BFS regardless (to find all connected tiles)
+          queue.push({ idx: neighborIdx, layer: layer + 1 });
+        });
+      }
+      
+      // Find any disconnected tiles (not reachable from hex tile)
+      const disconnectedTiles = [];
+      board.forEach((cell, idx) => {
+        if (visited.has(idx)) return;
+        if (cell === HUMAN || cell === AI) {
+          if (!isFortressTile(idx)) {
+            disconnectedTiles.push({ idx, cell });
+          }
+        }
+      });
+      
+      // Add disconnected tiles to the last layer (or create a new layer if no layers exist)
+      if (disconnectedTiles.length > 0) {
+        const lastLayerIndex = layers.length > 0 ? layers.length : 0;
+        if (!layers[lastLayerIndex]) {
+          layers[lastLayerIndex] = [];
+        }
+        layers[lastLayerIndex].push(...disconnectedTiles);
+      }
+      
+      return layers;
+    }
+
+    function executeOMFG(player, hexTileIdx) {
+      // Get tiles organized in cascade layers (waves)
+      const layers = getOMFGCascadeLayers(hexTileIdx);
+      
+      if (layers.length === 0) {
+        statusElement.textContent = `${playerLabel(player)} activated OMFG! (No tiles to invert)`;
+        evaluateBoardStateAfterAuto();
+        return;
+      }
+      
+      // Get hex tile position for distance calculations
+      const hexTile = boardElement.children[hexTileIdx];
+      if (!hexTile) return;
+      const hexRect = hexTile.getBoundingClientRect();
+      const hexSize = hexRect.width;
+      const hexCenterX = hexRect.left + hexRect.width / 2;
+      const hexCenterY = hexRect.top + hexRect.height / 2;
+      
+      // Get board bounds to calculate max outline radius
+      const boardRect = boardElement.getBoundingClientRect();
+      const maxDistLeft = hexCenterX - boardRect.left;
+      const maxDistRight = boardRect.right - hexCenterX;
+      const maxDistTop = hexCenterY - boardRect.top;
+      const maxDistBottom = boardRect.bottom - hexCenterY;
+      const maxDistX = Math.max(maxDistLeft, maxDistRight);
+      const maxDistY = Math.max(maxDistTop, maxDistBottom);
+      const maxDist = Math.max(maxDistX, maxDistY);
+      
+      // Outline starts at hexSize/2 radius and grows to maxDist radius
+      const startRadius = hexSize / 2;
+      const finalRadius = maxDist;
+      const radiusRange = finalRadius - startRadius;
+      
+      const OUTLINE_DURATION = 1000; // 1 second for tile swapping
+      
+      // Collect all tiles with their distances from hex center
+      const tilesWithDistances = [];
+      layers.forEach(layer => {
+        layer.forEach(({ idx, cell }) => {
+          const tile = boardElement.children[idx];
+          if (tile) {
+            const tileRect = tile.getBoundingClientRect();
+            const tileCenterX = tileRect.left + tileRect.width / 2;
+            const tileCenterY = tileRect.top + tileRect.height / 2;
+            const tileRadius = tileRect.width / 2;
+            
+            // Distance from hex center to tile center
+            const distX = tileCenterX - hexCenterX;
+            const distY = tileCenterY - hexCenterY;
+            const distance = Math.sqrt(distX * distX + distY * distY);
+            
+            // The outline's edge reaches the tile center when outline radius = distance
+            // Calculate when this happens: (distance - startRadius) / radiusRange * duration
+            const radiusAtTile = distance;
+            const delay = radiusRange > 0
+              ? Math.max(0, ((radiusAtTile - startRadius) / radiusRange) * OUTLINE_DURATION)
+              : 0;
+            
+            tilesWithDistances.push({ idx, cell, distance, delay });
+          }
+        });
+      });
+      
+      // Sort by delay so tiles swap in order
+      tilesWithDistances.sort((a, b) => a.delay - b.delay);
+      
+      // Animate tiles based on when the outline's edge passes their center
+      tilesWithDistances.forEach(({ idx, cell, delay }) => {
+        setTimeout(() => {
+          // Invert the tile (as the outline's edge passes its center)
+          const newSymbol = cell === HUMAN ? AI : HUMAN;
+          board[idx] = newSymbol;
+          
+          // Update the visual representation
+          const tile = boardElement.children[idx];
+          if (tile) {
+            // Play pink flash effect on this tile
+            playOMFGFlash(tile);
+            
+            tile.textContent = newSymbol;
+            applyTileMark(tile, newSymbol);
+            // Add a brief flash effect
+            tile.style.transition = 'transform 0.15s ease, box-shadow 0.15s ease';
+            tile.style.transform = 'scale(1.1)';
+            tile.style.boxShadow = '0 0 15px rgba(255, 20, 147, 0.8)';
+            setTimeout(() => {
+              tile.style.transform = '';
+              tile.style.boxShadow = '';
+            }, 150);
+          }
+        }, delay);
+      });
+      
+      statusElement.textContent = `${playerLabel(player)} activated OMFG! The board is inverting...`;
+      
+      // After animation completes, check game state (use 1.5s for outline, but wait a bit more for all swaps)
+      const maxDelay = tilesWithDistances.length > 0 
+        ? Math.max(...tilesWithDistances.map(t => t.delay))
+        : OUTLINE_DURATION;
+      const totalWait = Math.max(OUTLINE_DURATION, maxDelay + 200); // Add small buffer
+      
+      setTimeout(() => {
+        statusElement.textContent = `${playerLabel(player)} activated OMFG! The board has been inverted!`;
+        evaluateBoardStateAfterAuto();
+      }, totalWait);
     }
 
     function attemptAIMysteryTile() {
