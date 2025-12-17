@@ -50,6 +50,17 @@
       background: rgba(15, 22, 38, 0.6);
       border-radius: 8px;
       min-height: 20px;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    .status.x-turn {
+      background: #4fd4ff;
+      color: #ffffff;
+    }
+
+    .status.o-turn {
+      background: #ff5c7d;
+      color: #ffffff;
     }
 
     .board {
@@ -733,19 +744,22 @@
 
     .toenado-circle {
       position: fixed;
-      width: 60px;
-      height: 60px;
+      width: 72px;
+      height: 72px;
       border: 3px solid #ffffff;
       border-radius: 50%;
       pointer-events: none;
       z-index: 15;
       box-shadow: 0 0 15px rgba(255, 255, 255, 0.8), inset 0 0 10px rgba(255, 255, 255, 0.3);
       opacity: 0;
-      transition: opacity 0.3s ease;
+      transform: scale(0);
+      transform-origin: center center;
+      transition: opacity 0.3s ease, transform 1s ease-out;
     }
 
     .toenado-circle.active {
       opacity: 1;
+      transform: scale(1);
     }
 
     .toenado-circle.disintegrating {
@@ -1182,6 +1196,15 @@
       hideHoverPreview(event.currentTarget);
     }
 
+    function updateStatusTurnColor() {
+      statusElement.classList.remove('x-turn', 'o-turn');
+      if (currentPlayer === HUMAN) {
+        statusElement.classList.add('x-turn');
+      } else if (currentPlayer === AI) {
+        statusElement.classList.add('o-turn');
+      }
+    }
+
     function grantExtraTurn(player) {
       const state = playerState[player];
       if (state?.extraTurnAvailable && !state.extraTurnUsed) {
@@ -1189,6 +1212,7 @@
         const cardName = state.card?.name || 'card';
         statusElement.textContent = `${playerLabel(player)} activates ${cardName}! Another turn.`;
         currentPlayer = player;
+        updateStatusTurnColor();
         startCardDraftFor(player);
         return true;
       }
@@ -1197,6 +1221,8 @@
 
     function switchTurns(player) {
       currentPlayer = player === HUMAN ? AI : HUMAN;
+      // Update status background color based on current player
+      updateStatusTurnColor();
       // Update ghost visibility when turn changes
       ghostTiles.forEach((ghost, idx) => {
         renderGhostTile(idx);
@@ -1545,6 +1571,7 @@
       // Set starting player (default to HUMAN for first round, or use provided startingPlayer)
       const startingPlayer = (effectiveRound === 1) ? HUMAN : (options.startingPlayer || HUMAN);
       currentPlayer = startingPlayer;
+      updateStatusTurnColor();
       gameOver = false;
       roundResolved = false;
       waitingForAI = false;
@@ -4333,19 +4360,27 @@
       const startTile = boardElement.children[startIdx];
       if (!startTile) return;
       
-      // Get starting position
+      // Get starting position (center of the tile)
       const startRect = startTile.getBoundingClientRect();
       const startX = startRect.left + startRect.width / 2;
       const startY = startRect.top + startRect.height / 2;
       
-      // Create the white circle
+      // Create the white circle, centered on the tile
       toenadoCircle = document.createElement('div');
       toenadoCircle.className = 'toenado-circle';
-      toenadoCircle.style.left = `${startX - 30}px`;
-      toenadoCircle.style.top = `${startY - 30}px`;
+      // Center the circle on the tile center
+      // Circle is 72px content + 3px border on each side = 78px total visual
+      // Position left edge of content box so visual center aligns with tile center
+      // left = centerX - (contentWidth/2 + borderLeft) = centerX - (36 + 3) = centerX - 39
+      const circleContentSize = 72;
+      const circleBorder = 3;
+      const circleHalfSize = circleContentSize / 2 + circleBorder;
+      const verticalOffset = 14; // Lower the circle by 14px
+      toenadoCircle.style.left = `${startX - circleHalfSize}px`;
+      toenadoCircle.style.top = `${startY - circleHalfSize + verticalOffset}px`;
       document.body.appendChild(toenadoCircle);
       
-      // Show the circle
+      // Show the circle and start formation animation
       requestAnimationFrame(() => {
         toenadoCircle.classList.add('active');
       });
@@ -4360,12 +4395,20 @@
       // Determine target symbol (opponent's tiles)
       const targetSymbol = player === HUMAN ? AI : HUMAN;
       
-      // Animate the circle along the path
-      const startTime = Date.now();
+      // Wait for formation animation (1 second) before starting path animation
+      const formationDelay = 1000;
+      const pathStartTime = Date.now() + formationDelay;
       const duration = 5000; // 5 seconds
       
       function animate() {
-        const elapsed = Date.now() - startTime;
+        const now = Date.now();
+        // Don't start path animation until formation is complete
+        if (now < pathStartTime) {
+          toenadoAnimationId = requestAnimationFrame(animate);
+          return;
+        }
+        
+        const elapsed = now - pathStartTime;
         const progress = Math.min(elapsed / duration, 1);
         
         if (progress >= 1) {
@@ -4392,8 +4435,13 @@
           const x = currentPoint.x + (nextPoint.x - currentPoint.x) * fraction;
           const y = currentPoint.y + (nextPoint.y - currentPoint.y) * fraction;
           
-          toenadoCircle.style.left = `${x - 30}px`;
-          toenadoCircle.style.top = `${y - 30}px`;
+          // Use same centering calculation as initial positioning
+          const circleContentSize = 72;
+          const circleBorder = 3;
+          const circleHalfSize = circleContentSize / 2 + circleBorder;
+          const verticalOffset = 14; // Lower the circle by 14px
+          toenadoCircle.style.left = `${x - circleHalfSize}px`;
+          toenadoCircle.style.top = `${y - circleHalfSize + verticalOffset}px`;
           
           // Update attached tiles to orbit around the circle
           // Spin speed increases as progress approaches 1 (faster near the end)
@@ -4509,7 +4557,7 @@
 
     function checkToenadoCollisions(circleX, circleY, targetSymbol) {
       // Check each tile to see if the circle passes over the tile's center
-      const circleRadius = 30; // Half of 60px circle
+      const circleRadius = 36; // Half of 72px circle
       
       board.forEach((cell, idx) => {
         if (cell !== targetSymbol) return; // Only check target opponent's tiles
